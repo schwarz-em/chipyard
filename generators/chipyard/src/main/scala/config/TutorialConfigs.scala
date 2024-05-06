@@ -46,7 +46,7 @@ class TutorialMMIOConfig extends Config(
 
   // Attach either a TileLink or AXI4 version of GCD
   // Uncomment one of the below lines
-  // new chipyard.example.WithGCD(useAXI4=false) ++ // Use TileLink version
+  new chipyard.example.WithGCD(useAXI4=false) ++ // Use TileLink version
   // new chipyard.example.WithGCD(useAXI4=true) ++  // Use AXI4 version
 
   // For this demonstration we assume the base system is a single-core Rocket, for fast elaboration

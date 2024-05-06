@@ -370,3 +370,9 @@ class FireSimLargeBoomCospikeConfig extends Config(
   new WithDefaultMemModel ++
   new WithFireSimConfigTweaks++
   new chipyard.LargeBoomV3Config)
+
+class FireSimRocketTutorialMMIOConfig extends Config(
+  new WithDefaultFireSimBridges ++
+  new WithDefaultMemModel ++
+  new WithFireSimConfigTweaks ++
+  new chipyard.TutorialMMIOConfig)
