@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Messages>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1312" tag="" content="Analyzing design file &apos;/scratch/schwarzem/firesim-cs267/target-design/chipyard/tools/centrifuge/examples/vadd_proj/src/hls/vadd_tl/accel.c&apos; ..."/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1312" tag="" content="Analyzing design file &apos;/scratch/schwarzem/firesim-cs267/target-design/chipyard/tools/centrifuge/examples/vadd_proj/src/hls/vadd_tl/vadd_tl.c&apos; ..."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished Linking Time (s): cpu = 00:00:07 ; elapsed = 00:00:07 . Memory (MB): peak = 346.691 ; gain = 0.340 ; free physical = 85738 ; free virtual = 128950"/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished Checking Pragmas Time (s): cpu = 00:00:07 ; elapsed = 00:00:07 . Memory (MB): peak = 346.691 ; gain = 0.340 ; free physical = 85738 ; free virtual = 128950"/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1467" tag="" content="Starting code transformations ..."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished Standard Transforms Time (s): cpu = 00:00:07 ; elapsed = 00:00:07 . Memory (MB): peak = 346.691 ; gain = 0.340 ; free physical = 85737 ; free virtual = 128949"/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1472" tag="" content="Checking synthesizability ..."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished Checking Synthesizability Time (s): cpu = 00:00:07 ; elapsed = 00:00:08 . Memory (MB): peak = 346.691 ; gain = 0.340 ; free physical = 85737 ; free virtual = 128949"/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished Pre-synthesis Time (s): cpu = 00:00:07 ; elapsed = 00:00:08 . Memory (MB): peak = 474.516 ; gain = 128.164 ; free physical = 85717 ; free virtual = 128930"/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished Architecture Synthesis Time (s): cpu = 00:00:07 ; elapsed = 00:00:08 . Memory (MB): peak = 474.516 ; gain = 128.164 ; free physical = 85724 ; free virtual = 128937"/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1317" tag="" content="Starting hardware synthesis ..."/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1385" tag="" content="Synthesizing &apos;vadd&apos; ..."/>
+	<Message severity="WARNING" prefix="[SYN 201-107]" key="SYN_PORT_NAME_ILLEGAL_593" tag="" content="Renaming port name &apos;vadd/length&apos; to &apos;vadd/length_r&apos; to avoid the conflict with HDL keywords or other object names."/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1477" tag="" content="----------------------------------------------------------------"/>
+	<Message severity="INFO" prefix="[HLS 200-42]" key="HLS_42_1438" tag="" content="-- Implementing module &apos;vadd&apos;"/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1478" tag="" content="----------------------------------------------------------------"/>
+	<Message severity="INFO" prefix="[SCHED 204-11]" key="SCHED_SCHED_STATUS_597" tag="" content="Starting scheduling ..."/>
+	<Message severity="INFO" prefix="[SCHED 204-11]" key="SCHED_SCHED_STATUS_596" tag="" content="Finished scheduling."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_966" tag="" content=" Elapsed time: 7.77 seconds; current allocated memory: 75.072 MB."/>
+	<Message severity="INFO" prefix="[HLS 200-434]" key="HLS 200-434" tag="SDX" content="Only 0 loops out of a total 2 loops have been pipelined in this design."/>
+	<Message severity="INFO" prefix="[BIND 205-100]" key="BIND_100_926" tag="" content="Starting micro-architecture generation ..."/>
+	<Message severity="INFO" prefix="[BIND 205-101]" key="BIND_101_698" tag="" content="Performing variable lifetime analysis."/>
+	<Message severity="INFO" prefix="[BIND 205-101]" key="BIND_101_697" tag="" content="Exploring resource sharing."/>
+	<Message severity="INFO" prefix="[BIND 205-101]" key="BIND_101_693" tag="" content="Binding ..."/>
+	<Message severity="INFO" prefix="[BIND 205-100]" key="BIND_100_925" tag="" content="Finished micro-architecture generation."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_966" tag="" content=" Elapsed time: 3.62 seconds; current allocated memory: 87.448 MB."/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1483" tag="" content="----------------------------------------------------------------"/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1484" tag="" content="-- Generating RTL for module &apos;vadd&apos;"/>
+	<Message severity="INFO" prefix="[HLS 200-10]" key="HLS_10_1485" tag="" content="----------------------------------------------------------------"/>
+	<Message severity="INFO" prefix="[RTGEN 206-500]" key="PREPROC_IO_COMP_CONFLICT_1950" tag="" content="Setting interface mode on port &apos;vadd/gmem0&apos; to &apos;m_axi&apos;."/>
+	<Message severity="INFO" prefix="[RTGEN 206-500]" key="PREPROC_IO_COMP_CONFLICT_1950" tag="" content="Setting interface mode on port &apos;vadd/a&apos; to &apos;s_axilite &amp; ap_none&apos;."/>
+	<Message severity="INFO" prefix="[RTGEN 206-500]" key="PREPROC_IO_COMP_CONFLICT_1950" tag="" content="Setting interface mode on port &apos;vadd/b&apos; to &apos;s_axilite &amp; ap_none&apos;."/>
+	<Message severity="INFO" prefix="[RTGEN 206-500]" key="PREPROC_IO_COMP_CONFLICT_1950" tag="" content="Setting interface mode on port &apos;vadd/c&apos; to &apos;s_axilite &amp; ap_none&apos;."/>
+	<Message severity="INFO" prefix="[RTGEN 206-500]" key="PREPROC_IO_COMP_CONFLICT_1950" tag="" content="Setting interface mode on port &apos;vadd/length_r&apos; to &apos;s_axilite &amp; ap_none&apos;."/>
+	<Message severity="INFO" prefix="[RTGEN 206-500]" key="PREPROC_IO_COMP_CONFLICT_1950" tag="" content="Setting interface mode on function &apos;vadd&apos; to &apos;s_axilite &amp; ap_ctrl_hs&apos;."/>
+	<Message severity="INFO" prefix="[RTGEN 206-100]" key="RTGEN_100_851" tag="" content="Bundling port &apos;return&apos;, &apos;a&apos;, &apos;b&apos;, &apos;c&apos; and &apos;length_r&apos; to AXI-Lite port control."/>
+	<Message severity="INFO" prefix="[RTGEN 206-100]" key="RTGEN_100_856" tag="" content="Finished creating RTL model for &apos;vadd&apos;."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_966" tag="" content=" Elapsed time: 0.88 seconds; current allocated memory: 111.948 MB."/>
+	<Message severity="INFO" prefix="[HLS 200-111]" key="HLS_111_965" tag="" content="Finished generating all RTL models Time (s): cpu = 00:00:13 ; elapsed = 00:00:14 . Memory (MB): peak = 560.105 ; gain = 213.754 ; free physical = 85588 ; free virtual = 128839"/>
+	<Message severity="INFO" prefix="[SYSC 207-301]" key="SYSC_301_1062" tag="" content="Generating SystemC RTL for vadd with prefix tl0_vadd_tl_."/>
+	<Message severity="INFO" prefix="[VHDL 208-304]" key="VHDL_304_1063" tag="" content="Generating VHDL RTL for vadd with prefix tl0_vadd_tl_."/>
+	<Message severity="INFO" prefix="[VLOG 209-307]" key="VLOG_307_1064" tag="" content="Generating Verilog RTL for vadd with prefix tl0_vadd_tl_."/>
+	<Message severity="INFO" prefix="[HLS 200-112]" key="HLS_112_964" tag="" content="Total elapsed time: 13.69 seconds; peak allocated memory: 111.948 MB."/>
+	<Message severity="INFO" prefix="[Common 17-206]" key="Common 17-206" tag="" content="Exiting vivado_hls at Sat May  4 22:36:03 2024..."/>
+</Messages>

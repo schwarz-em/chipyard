@@ -1,0 +1,9 @@
+{
+	"version": "1.0",
+	"modules": {
+		"rocc0_vadd_vadd": {
+			"proto_instances": {
+			}
+		}
+	}
+}

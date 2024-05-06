@@ -1,0 +1,9 @@
+{
+	"version": "1.0",
+	"modules": {
+		"tl0_vadd_tl_vadd": {
+			"proto_instances": {
+			}
+		}
+	}
+}

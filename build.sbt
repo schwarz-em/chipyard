@@ -160,6 +160,8 @@ lazy val testchipip = (project in file("generators/testchipip"))
 lazy val chipyard = (project in file("generators/chipyard"))
   .dependsOn(testchipip, rocketchip, boom, hwacha, rocketchip_blocks, rocketchip_inclusive_cache,
     sha3, // On separate line to allow for cleaner tutorial-setup patches
+    hls_rocc0_vadd_vadd, hls_tl0_vadd_tl_vadd,
+    vadd_soc, 
     dsptools, rocket_dsp_utils,
     gemmini, icenet, tracegen, cva6, nvdla, sodor, ibex, fft_generator,
     constellation, mempress, barf, shuttle, caliptra_aes)
@@ -319,4 +321,19 @@ lazy val fpga_shells = (project in file("./fpga/fpga-shells"))
 
 lazy val fpga_platforms = (project in file("./fpga"))
   .dependsOn(chipyard, fpga_shells)
+  .settings(commonSettings)
+
+lazy val hls_rocc0_vadd_vadd = (project in file("generators/vadd_soc/rocc0_vadd_vadd"))
+  .dependsOn(rocketchip, testchipip, midasTargetUtils, icenet)
+  .settings(chiselSettings)
+  .settings(commonSettings)
+
+lazy val hls_tl0_vadd_tl_vadd = (project in file("generators/vadd_soc/tl0_vadd_tl_vadd"))
+  .dependsOn(rocketchip, testchipip, midasTargetUtils, icenet)
+  .settings(chiselSettings)
+  .settings(commonSettings)
+
+lazy val vadd_soc = (project in file("generators/vadd_soc"))
+  .dependsOn(boom, testchipip, hwacha, rocketchip_blocks, rocketchip_inclusive_cache, hls_rocc0_vadd_vadd, hls_tl0_vadd_tl_vadd)
+  .settings(chiselSettings)
   .settings(commonSettings)

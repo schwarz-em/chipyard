@@ -39,10 +39,11 @@ class DigitalTop(implicit p: Parameters) extends ChipyardSystem
   with chipyard.clocking.CanHaveClockTap // Enables optionally adding a clock tap output port
   with fftgenerator.CanHavePeripheryFFT // Enables optionally having an MMIO-based FFT block
   with constellation.soc.CanHaveGlobalNoC // Support instantiating a global NoC interconnect
+  with hls_tl0_vadd_tl_vadd.CanHavePeripheryHLStl0_vadd_tl_vaddAXI
 {
   override lazy val module = new DigitalTopModule(this)
 }
 
-class DigitalTopModule(l: DigitalTop) extends ChipyardSystemModule(l)
+class DigitalTopModule[+L <: DigitalTop](l: L) extends ChipyardSystemModule(l)
   with freechips.rocketchip.util.DontTouch
-// DOC include end: DigitalTop
+  // DOC include end: DigitalTop
