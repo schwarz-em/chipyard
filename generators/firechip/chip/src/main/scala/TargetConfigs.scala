@@ -352,3 +352,14 @@ class FireSimLargeBoomSV39CospikeConfig extends Config(
   new WithFireSimConfigTweaks++
   new freechips.rocketchip.rocket.WithSV39 ++
   new chipyard.LargeBoomV3Config)
+
+class CTCFireSimConfig extends Config(
+  new WithCTCBridge ++
+  new FireSimRocketConfig
+)
+
+// Trusting that harness clocks will work here
+class MultiChipCTCFireSimConfig extends Config(
+  new chipyard.harness.WithMultiChip(0, new CTCFireSimConfig) ++
+  new chipyard.harness.WithMultiChip(1, new CTCFireSimConfig)
+)

@@ -76,6 +76,13 @@ class WithTSIBridgeAndHarnessRAMOverSerialTL extends HarnessBinder({
   }
 })
 
+// I assume passing args is alright?
+class WithCTCBridge(otherChip: Int = 0) extends HarnessBinder({
+  case (th: FireSim, port: CTCPort, chipId: Int) => {
+    CTCBridge(th.harnessBinderClock, port.io, th.harnessBinderReset.asBool, otherChip)(th.p)
+  }
+})
+
 class WithDMIBridge extends HarnessBinder({
   case (th: FireSim, port: DMIPort, chipId: Int) => {
     // This assumes that:
