@@ -3,6 +3,9 @@
 package firechip.bridgeinterfaces
 
 import chisel3._
+import chisel3.util._
+
+// import testchipip.ctc.{CTCBridgeIO}
 
 // class C2CTSIPortIO extends Bundle {
 //   val manager = new TSIIO
@@ -14,8 +17,10 @@ import chisel3._
 // }
 
 class DecoupledFlitIO(val flitWidth: Int) extends Bundle {
-  val in = Flipped(Decoupled(new UInt(flitWidth.W)))
-  val out = Decoupled(new UInt(flitWidth.W))
+  // val in = Flipped(Decoupled(new Flit(flitWidth))) 
+  // val out = Decoupled(new Flit(flitWidth)) 
+  val in = Flipped(Decoupled(UInt(flitWidth.W)))
+  val out = Decoupled(UInt(flitWidth.W))
 }
 
 class CTCBridgeIO(val w: Int) extends Bundle {
@@ -31,7 +36,7 @@ object CTC {
 class CTCBridgeTargetIO extends Bundle {
   val clock = Input(Clock())
   val reset = Input(Bool())
-  val ctc_io = new CTCBridgeIO(CTC.WIDTH)
+  val ctc_io = Flipped(new CTCBridgeIO(CTC.WIDTH))
 }
 
 // // case class C2CTSIKey(otherChipId: Int)

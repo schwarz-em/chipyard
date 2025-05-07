@@ -12,7 +12,7 @@ import firesim.lib.bridgeutils._
 
 import firechip.bridgeinterfaces._
 
-class CTCBridge(otherChipId: Int)(implicit p: Parameters) extends BridgeModule[HostPortIO[CTCBridgeTargetIO]]()(p) {
+class CTCBridgeModule(implicit p: Parameters) extends BridgeModule[HostPortIO[CTCBridgeTargetIO]]()(p) {
   lazy val module = new BridgeModuleImp(this) {
     // Copied from TSIBridge thank youuuu tsi bridge
     val io = IO(new WidgetIO)
@@ -48,21 +48,38 @@ class CTCBridge(otherChipId: Int)(implicit p: Parameters) extends BridgeModule[H
     managerOutBuf.io.enq <> target.manager_flit.out
     managerOutBuf.io.enq.valid := target.manager_flit.out.valid && tFire
 
+    // target.client_flit.in.valid := clientInBuf.io.deq.valid
+    // target.client_flit.in.bits.flit := clientInBuf.io.deq.bits
+    // clientInBuf.io.deq.ready := target.client_flit.in.ready && tFire
+
+    // clientOutBuf.io.enq.bits := target.client_flit.out.bits.flit
+    // target.client_flit.out.ready := clientOutBuf.io.enq.ready
+    // clientOutBuf.io.enq.valid := target.client_flit.out.valid && tFire
+
+    // // Connect manager flit to buffer
+    // target.manager_flit.in.valid := managerInBuf.io.deq.valid
+    // target.manager_flit.in.bits.flit := managerInBuf.io.deq.bits
+    // managerInBuf.io.deq.ready := target.manager_flit.in.ready && tFire
+
+    // managerOutBuf.io.enq.bits := target.manager_flit.out.bits.flit
+    // target.manager_flit.out.ready := managerOutBuf.io.enq.ready
+    // managerOutBuf.io.enq.valid := target.manager_flit.out.valid && tFire
+
     // CLIENT MMIO
-    genWOReg(inBuf.io.enq.bits, "client_in_bits")
-    Pulsify(genWORegInit(inBuf.io.enq.valid, "client_in_valid", false.B), pulseLength = 1)
-    genROReg(inBuf.io.enq.ready, "client_in_ready")
-    genROReg(outBuf.io.deq.bits, "client_out_bits")
-    genROReg(outBuf.io.deq.valid, "client_out_valid")
-    Pulsify(genWORegInit(outBuf.io.deq.ready, "client_out_ready", false.B), pulseLength = 1)
+    genWOReg(clientInBuf.io.enq.bits, "client_in_bits")
+    Pulsify(genWORegInit(clientInBuf.io.enq.valid, "client_in_valid", false.B), pulseLength = 1)
+    genROReg(clientInBuf.io.enq.ready, "client_in_ready")
+    genROReg(clientOutBuf.io.deq.bits, "client_out_bits")
+    genROReg(clientOutBuf.io.deq.valid, "client_out_valid")
+    Pulsify(genWORegInit(clientOutBuf.io.deq.ready, "client_out_ready", false.B), pulseLength = 1)
 
     // MANAGER MMIO
-    genWOReg(inBuf.io.enq.bits, "manager_in_bits")
-    Pulsify(genWORegInit(inBuf.io.enq.valid, "manager_in_valid", false.B), pulseLength = 1)
-    genROReg(inBuf.io.enq.ready, "manager_in_ready")
-    genROReg(outBuf.io.deq.bits, "manager_out_bits")
-    genROReg(outBuf.io.deq.valid, "manager_out_valid")
-    Pulsify(genWORegInit(outBuf.io.deq.ready, "manager_out_ready", false.B), pulseLength = 1)
+    genWOReg(managerInBuf.io.enq.bits, "manager_in_bits")
+    Pulsify(genWORegInit(managerInBuf.io.enq.valid, "manager_in_valid", false.B), pulseLength = 1)
+    genROReg(managerInBuf.io.enq.ready, "manager_in_ready")
+    genROReg(managerOutBuf.io.deq.bits, "manager_out_bits")
+    genROReg(managerOutBuf.io.deq.valid, "manager_out_valid")
+    Pulsify(genWORegInit(managerOutBuf.io.deq.ready, "manager_out_ready", false.B), pulseLength = 1)
 
     genCRFile()
 
