@@ -49,6 +49,8 @@ private:
   std::string fifo1_path;
   int fifo0_fd;
   int fifo1_fd;
+  int chip_id;
+  int chip1_id;
 };
 
 #endif // __CTC_H
