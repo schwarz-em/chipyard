@@ -18,13 +18,13 @@ class CTCBridgeModule(implicit p: Parameters) extends BridgeModule[HostPortIO[CT
     val io = IO(new WidgetIO)
     val hPort = IO(HostPort(new CTCBridgeTargetIO))
 
-    val clientInBuf  = Module(new Queue(UInt(CTC.WIDTH.W), 16))
-    val clientOutBuf = Module(new Queue(UInt(CTC.WIDTH.W), 16))
-    val managerInBuf  = Module(new Queue(UInt(CTC.WIDTH.W), 16))
-    val managerOutBuf = Module(new Queue(UInt(CTC.WIDTH.W), 16))
+    val clientInBuf  = Module(new Queue(UInt(CTC.WIDTH.W), 1))
+    val clientOutBuf = Module(new Queue(UInt(CTC.WIDTH.W), 1))
+    val managerInBuf  = Module(new Queue(UInt(CTC.WIDTH.W), 1))
+    val managerOutBuf = Module(new Queue(UInt(CTC.WIDTH.W), 1))
 
     val target = hPort.hBits.ctc_io
-    val tFire = hPort.toHost.hValid && hPort.fromHost.hReady
+    val tFire = hPort.toHost.hValid && hPort.fromHost.hReady && (clientOutBuf.io.enq.ready && managerOutBuf.io.enq.ready)
     val targetReset = tFire & hPort.hBits.reset
     clientInBuf.reset  := reset.asBool || targetReset
     clientOutBuf.reset := reset.asBool || targetReset
