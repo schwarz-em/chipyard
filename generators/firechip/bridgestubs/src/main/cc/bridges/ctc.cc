@@ -84,13 +84,14 @@ ctc_t::ctc_t(simif_t &simif,
 
   const std::string chip0fifo_arg = std::string("+fifofile") + num_equals;
   const std::string chip1fifo_arg = std::string("+fifofile") + chip1no + std::string("=");
+  const std::string latency_arg = std::string("+ctclatency") + num_equals;
 
   fifo0_path = "";
   fifo1_path = "";
   // fifo0_fd = 0
   // fifo1_fd = 0
 
-  this->LINKLATENCY = 10; //hardcode for now, TODO: add argument
+  //this->LINKLATENCY = 28; //hardcode for now, TODO: add argument
 
   for (auto &arg : args) {
     if(arg.find(chip0fifo_arg) == 0) {
@@ -99,10 +100,16 @@ ctc_t::ctc_t(simif_t &simif,
     if(arg.find(chip1fifo_arg) == 0) {
       fifo1_path = const_cast<char *>(arg.c_str()) + chip1fifo_arg.length();
     }
+    if(arg.find(latency_arg) == 0) {
+      char *str = const_cast<char *>(arg.c_str()) + latency_arg.length();
+      this->LINKLATENCY = atoi(str);
+    }
   }
 
   printf("CHIP%d: got fifo0 path %s\n", chip_id, fifo0_path.c_str());
   printf("CHIP%d: got fifo1 path %s\n", chip_id, fifo1_path.c_str());
+
+  printf("Link latency = %d\n", this->LINKLATENCY);
 
   fifo0_path = fifo0_path + std::string("fifo") + std::to_string(chip_id);
   fifo1_path = fifo1_path + std::string("fifo") + chip1no;
@@ -113,7 +120,8 @@ ctc_t::ctc_t(simif_t &simif,
   mkfifo(fifo0_path.c_str(), 0666);
 
   // For storing data that is pushed/pulled from the stream
-  buf = (char *)calloc(BUFBYTES + EXTRABYTES, sizeof(char));
+  buf = static_cast<char*>(aligned_alloc(64, BUFBYTES + EXTRABYTES));
+  memset(buf, 0, BUFBYTES + EXTRABYTES);
 
 }
 
@@ -121,15 +129,7 @@ ctc_t::~ctc_t() {
   free(buf);
 }
 
-// Uh idk if I need this anymore...
 void ctc_t::init() {
-  // Open my fifo as RO
-  // fifo0_fd = open(fifo0_path.c_str(), O_RDONLY);
-  // printf("CHIP%d: opened fifo0", chip_id);
-  // // Open the other chip's fifo as WO
-  // fifo1_fd = open(fifo1_path.c_str(), O_WRONLY);
-  // printf("CHIP%d: opened fifo1", chip_id);
-
   // Switch order to prevent deadlock?
   if (chip_id > chip1_id) {
     fifo0_fd = open(fifo0_path.c_str(), O_RDONLY);
@@ -146,17 +146,12 @@ void ctc_t::init() {
   assert(fifo0_fd != -1 && "fifofile0 couldn't be opened\n");
   assert(fifo1_fd != -1 && "fifofile1 couldn't be opened\n");
 
-  // Enqueue SIMLATENCY_BT beats into the from-cpu stream. This permits the
-  // FPGA-hosted part of the simulator to execute SIMLATENCY cycles in the
-  // NIC-local clock domain before requiring additional interaction from the
-  // driver.
+  // Stolen from simplenic.cc
   auto token_bytes_to_send = SIMLATENCY_BT * BUFWIDTH;
-  // Set the threshold here to 0 as a proxy for checking the stream capacity.
-  // If we cannot enqueue the full payload, the stream is likely undersized
-  // for our desired latency or the FPGA has not been properly reset /
-  // reprogrammed.
   auto token_bytes_produced = this->push(
       stream_from_cpu_idx, buf, token_bytes_to_send, 0);
+
+  printf("[CTC] init push 1\n");
 
   if (token_bytes_produced != token_bytes_to_send) {
     printf("FAIL. Could not enqueue big tokens to support the desired sim "
@@ -165,6 +160,8 @@ void ctc_t::init() {
            token_bytes_produced / BUFWIDTH);
     exit(1);
   }
+
+  printf("[CTC] init push 2\n");
 
 }
 
@@ -197,7 +194,7 @@ void ctc_t::tick() {
       exit(1);
     }
 
-    printf("[CTC] Wrote fifo\n");
+    // printf("[CTC] Wrote fifo\n");
 
     // Read my own fifo until I read all the "in" chars
     int bytes_read = ::read(fifo0_fd, buf, BUFBYTES + EXTRABYTES);
@@ -222,7 +219,7 @@ void ctc_t::tick() {
       exit(1);
     }
 
-    printf("[CTC] Read fifo\n");
+    // printf("[CTC] Read fifo\n");
 
     //printf("[CTC] leaving tick\n");
   }
