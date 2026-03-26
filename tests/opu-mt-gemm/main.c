@@ -74,6 +74,7 @@ int8_t *b_c0 = (int8_t*)TCM_BASE_C0;
 // int8_t at_c1[M_DIM*K_DIM] = TCM_BASE_C1;
 
 static int32_t c_opu[M_DIM*N_DIM];
+static int32_t c_opu_c0[M_DIM*N_DIM];
 
 void __main(void) {
   size_t mhartid = read_csr(mhartid);
@@ -83,20 +84,9 @@ void __main(void) {
   asm volatile("vsetvli %[vl], zero, e32, m4, ta, ma" : [vl]"=r"(maxvl));
   size_t dl = maxvl / 2;
   size_t rows_per_core = 2*maxvl;
-
+  
   barrier();
-  for (size_t i = 0; i < n_cores; i++) {
-    if (mhartid == i) {
-      printf("Hello world from core %lu\n", mhartid);
-      printf("maxvl=%lu; dl=%lu; rows_per_core=%lu\n", maxvl, dl, rows_per_core);
-      printf("Testing M=%d, N=%d, K=%d\n", M_DIM, N_DIM, K_DIM);
-      memcpy(b_c0, b, sizeof(b));
-    
-    }
-    barrier();
-  }
-
-  barrier();
+  memcpy(b_c0, b, sizeof(b));
   size_t cycles_start = read_csr(mcycle);
   for (size_t m_base = 0; m_base < M_DIM; m_base += n_cores * rows_per_core) {
     size_t m_start = m_base + mhartid * rows_per_core;
@@ -109,13 +99,8 @@ void __main(void) {
     barrier();
   }
   size_t cycles_end = read_csr(mcycle);
-  size_t cycles = cycles_end - cycles_start;
-  for (size_t i = 0; i < n_cores; i++) {
-    if (mhartid == i) {
-      printf("Core %lu: %lu cycles\n", mhartid, cycles);
-    }
-    barrier();
-  }
+  size_t cycles_warmup = cycles_end - cycles_start;
+
   barrier();
   cycles_start = read_csr(mcycle);
   for (size_t m_base = 0; m_base < M_DIM; m_base += n_cores * rows_per_core) {
@@ -123,21 +108,27 @@ void __main(void) {
     size_t m_end = m_start + rows_per_core;
     if (m_end > M_DIM) m_end = M_DIM;
     if (m_start < M_DIM) {
-      i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b_c0, m_end - m_start, N_DIM, K_DIM, M_DIM);
+      i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b_c0, rows_per_core, N_DIM, K_DIM, M_DIM);
       // i8_mm_scalar(c_bias, c_opu + m_start * N_DIM, at + m_start, b, m_end - m_start, N_DIM, K_DIM, M_DIM);
     }
     barrier();
   }
   cycles_end = read_csr(mcycle);
-  cycles = cycles_end - cycles_start;
+  size_t cycles_tcm = cycles_end - cycles_start;
   for (size_t i = 0; i < n_cores; i++) {
     if (mhartid == i) {
-      printf("Core %lu: %lu cycles\n", mhartid, cycles);
+      printf("Core %lu: %lu cycles (warmup)\n", mhartid, cycles_warmup);
+      printf("Core %lu: %lu cycles (tcm)\n", mhartid, cycles_tcm);
     }
     barrier();
   }
 
   if (mhartid == 0) {
+    cycles_start = read_csr(mcycle);
+    i8_mm_bme_2x2(c_bias, c_opu_c0, at, b_c0, M_DIM, N_DIM, K_DIM, M_DIM);
+    cycles_end = read_csr(mcycle);
+    size_t cycles_c0 = cycles_end - cycles_start;
+    printf("Single Core, Core %lu: %lu cycles (c0)\n", mhartid, cycles_c0);
     int r = i32_compare(c_opu, verify_data, M_DIM, N_DIM);
     if (r) {
       printf("FAILURE; M, N, K = %d %d %d\n", M_DIM, N_DIM, K_DIM);
