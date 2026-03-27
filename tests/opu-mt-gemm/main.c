@@ -83,36 +83,21 @@ void __main(void) {
   size_t maxvl;
   asm volatile("vsetvli %[vl], zero, e32, m4, ta, ma" : [vl]"=r"(maxvl));
   size_t dl = maxvl / 2;
-  size_t rows_per_core = 2*maxvl;
+  size_t rows_per_core = M_DIM / n_cores;
   
   barrier();
   memcpy(b_c0, b, sizeof(b));
+  size_t m_start = mhartid * rows_per_core;
   size_t cycles_start = read_csr(mcycle);
-  for (size_t m_base = 0; m_base < M_DIM; m_base += n_cores * rows_per_core) {
-    size_t m_start = m_base + mhartid * rows_per_core;
-    size_t m_end = m_start + rows_per_core;
-    if (m_end > M_DIM) m_end = M_DIM;
-    if (m_start < M_DIM) {
-      i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b, m_end - m_start, N_DIM, K_DIM, M_DIM);
-      // i8_mm_scalar(c_bias, c_opu + m_start * N_DIM, at + m_start, b, m_end - m_start, N_DIM, K_DIM, M_DIM);
-    }
-    barrier();
-  }
+  i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b, rows_per_core, N_DIM, K_DIM, M_DIM);
+  barrier();
   size_t cycles_end = read_csr(mcycle);
   size_t cycles_warmup = cycles_end - cycles_start;
 
   barrier();
   cycles_start = read_csr(mcycle);
-  for (size_t m_base = 0; m_base < M_DIM; m_base += n_cores * rows_per_core) {
-    size_t m_start = m_base + mhartid * rows_per_core;
-    size_t m_end = m_start + rows_per_core;
-    if (m_end > M_DIM) m_end = M_DIM;
-    if (m_start < M_DIM) {
-      i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b_c0, rows_per_core, N_DIM, K_DIM, M_DIM);
-      // i8_mm_scalar(c_bias, c_opu + m_start * N_DIM, at + m_start, b, m_end - m_start, N_DIM, K_DIM, M_DIM);
-    }
-    barrier();
-  }
+  i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b_c0, rows_per_core, N_DIM, K_DIM, M_DIM);
+  barrier();
   cycles_end = read_csr(mcycle);
   size_t cycles_tcm = cycles_end - cycles_start;
   for (size_t i = 0; i < n_cores; i++) {
@@ -124,6 +109,7 @@ void __main(void) {
   }
 
   if (mhartid == 0) {
+    i8_mm_bme_2x2(c_bias, c_opu_c0, at, b_c0, M_DIM, N_DIM, K_DIM, M_DIM);
     cycles_start = read_csr(mcycle);
     i8_mm_bme_2x2(c_bias, c_opu_c0, at, b_c0, M_DIM, N_DIM, K_DIM, M_DIM);
     cycles_end = read_csr(mcycle);
