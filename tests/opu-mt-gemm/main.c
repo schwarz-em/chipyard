@@ -84,9 +84,22 @@ void __main(void) {
   asm volatile("vsetvli %[vl], zero, e32, m4, ta, ma" : [vl]"=r"(maxvl));
   size_t dl = maxvl / 2;
   size_t rows_per_core = M_DIM / n_cores;
+
+  for (size_t i = 0; i < n_cores; i++) {
+    if (mhartid == i) {
+      printf("Core %lu ALIVE\n", mhartid);
+    }
+    barrier();
+  }
   
-  barrier();
+  //barrier();
   memcpy(b_c0, b, sizeof(b));
+  for (size_t i = 0; i < n_cores; i++) {
+    if (mhartid == i) {
+      printf("Core %lu memcpy complete\n", mhartid);
+    }
+    barrier();
+  }
   size_t m_start = mhartid * rows_per_core;
   size_t cycles_start = read_csr(mcycle);
   i8_mm_bme_2x2(c_bias, c_opu + m_start * N_DIM, at + m_start, b, rows_per_core, N_DIM, K_DIM, M_DIM);
