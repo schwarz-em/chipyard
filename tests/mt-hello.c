@@ -3,7 +3,7 @@
 #include "marchid.h"
 
 // EDIT THIS
-static size_t n_cores = 4;
+static size_t n_cores = 2;
 
 static void __attribute__((noinline)) barrier()
 {
