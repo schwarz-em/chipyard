@@ -7,7 +7,8 @@ import testchipip.soc.{OBUS}
 import edu.berkeley.cs.uciedigital.tilelink.{UcieTLParams}
 
 class UcieChipletConfig extends Config(
-  new chipyard.harness.WithD2DLoopback ++
+  new chipyard.clocking.ClockNameContainsAssignment("d2d", 500.0) ++
+  new chipyard.harness.WithUciePhyBypassClocks ++
   new testchipip.soc.WithOffchipAddressRange(
     AddressSet.misaligned(0x800000000L, 0x2000000000L)
   ) ++
