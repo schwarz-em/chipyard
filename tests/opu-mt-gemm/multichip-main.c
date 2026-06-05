@@ -103,10 +103,13 @@ void __main(void) {
     size_t slice_off   = m_start * N_DIM * sizeof(int32_t);
     void *remote_c_slice =
       (void*)((uint8_t*)c_opu + slice_off + OFFCHIP_OFFSET * 1);
+    size_t memcpy_start = read_csr(mcycle);
     memcpy(remote_c_slice, c_opu + m_start * N_DIM, slice_bytes);
 
     // Order the C write before the done-flag write.
     __sync_synchronize();
+    size_t memcpy_end = read_csr(mcycle);
+    printf("Chip %lu: chiplet memcpy %lu cycles\n", chip_id, memcpy_end - memcpy_start);
 
     // Set our done flag in chip 1's scratchpad.
     volatile uint64_t *remote_flag =
