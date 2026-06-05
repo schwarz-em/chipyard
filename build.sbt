@@ -1,9 +1,9 @@
 import Tests._
 
 val chisel6Version = "6.7.0"
-val chisel7Version = "7.0.0-RC4"
+val chisel7Version = "7.13.0"
 val chiselTestVersion = "6.0.0"
-val scalaVersionFromChisel = "2.13.16"
+val scalaVersionFromChisel = if (sys.env.contains("USE_CHISEL7")) "2.13.18" else "2.13.16"
 
 val chisel3Version = "3.6.1"
 
@@ -151,7 +151,13 @@ lazy val rocketchip = freshProject("rocketchip", rocketChipDir)
   .settings(
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "mainargs" % "0.5.0",
-      "org.json4s" %% "json4s-jackson" % "4.0.5",
+      // Chisel 7+ needs a more recent version of json4s to avoid linking errors, and json4s
+      // migrated group ID at version 4.0.7.
+      if (sys.env.contains("USE_CHISEL7")) {
+        "io.github.json4s" %% "json4s-jackson" % "4.1.0"
+      } else {
+        "org.json4s" %% "json4s-jackson" % "4.0.5"
+      },
       "org.scala-graph" %% "graph-core" % "1.13.5"
     )
   )
@@ -232,7 +238,8 @@ lazy val chipyard = {
     "caliptra-aes-acc" -> caliptra_aes,
     "compress-acc" -> compressacc,
     "mempress" -> mempress,
-    "fft-generator" -> fft_generator
+    "fft-generator" -> fft_generator,
+    "ucie" -> ucie
   )
 
   // Discover optional modules if their submodule is initialized
@@ -393,6 +400,28 @@ lazy val rocc_acc_utils = withInitCheck((project in file("generators/rocc-acc-ut
   .dependsOn(rocketchip)
   .settings(libraryDependencies ++= rocketLibDeps.value)
   .settings(commonSettings)
+
+// UCIe digital IP. Uses the upstream Mill source layout (sources under scala/src,
+// tests under scala/test/src, resources under scala/resources). Depends on
+// rocketchip and testchipip (provided by Chipyard) plus the external `chippy`
+// artifact, which must be published to the local Maven/Ivy repo (the upstream
+// repo publishes it via `./mill __.publishLocal`).
+lazy val ucie = withInitCheck((project in file("generators/ucie/scala")), "ucie")
+  .dependsOn(rocketchip, testchipip)
+  .settings(libraryDependencies ++= rocketLibDeps.value)
+  .settings(commonSettings)
+  .settings(chiselSettings)
+  .settings(scalaTestSettings)
+  .settings(
+    Compile / scalaSource := baseDirectory.value / "src",
+    Compile / resourceDirectory := baseDirectory.value / "resources",
+    Test / scalaSource := baseDirectory.value / "test" / "src",
+    // Pull chippy intransitively: its POM declares unpublished transitive deps
+    // (chisel 7.8.0, rocketchip/diplomacy/cde _2.13:0.0.1) that don't exist in any
+    // repo. Chipyard already supplies those on the classpath via dependsOn(rocketchip)
+    // and chiselSettings, so we only want chippy's own jar.
+    libraryDependencies += ("edu.berkeley.cs" %% "chippy" % "0.0.1").intransitive()
+  )
 
 lazy val tapeout = (project in file("./tools/tapeout/"))
   .settings(chisel3Settings) // stuck on chisel3 and SFC
