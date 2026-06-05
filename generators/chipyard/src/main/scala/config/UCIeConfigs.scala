@@ -30,7 +30,9 @@ class UcieChipletConfig extends Config(
 )
 
 class DualUcieConfig extends Config(
-  new chipyard.harness.WithMultiChipD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
   new chipyard.harness.WithMultiChip(0, new UcieChipletConfig) ++
   new chipyard.harness.WithMultiChip(1, new UcieChipletConfig)
 )
