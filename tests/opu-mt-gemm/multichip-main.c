@@ -10,11 +10,13 @@
 #include "marchid.h"
 #include "mmio.h"
 #include "router.h"
+#include "ucie.h"
 
 #define N_CHIPS         2
 #define OFFCHIP_OFFSET  0x800000000L
 #define SCRATCHPAD_BASE 0x08000000L
 #define TCM_BASE_C0     0x70000000
+#define UCIE_REG_BASE   0x8000UL
 
 int8_t *b_c0 = (int8_t*)TCM_BASE_C0;
 
@@ -65,6 +67,11 @@ void __main(void) {
   size_t   m_start       = chip_idx * rows_per_chip;
 
   printf("Chip %lu starting\n", chip_id);
+
+  // Bring up this chip's UCIe link (PHY bypass clocks, driver/skew control,
+  // FSM reset, then switch the mainband to TileLink mode) before any
+  // chip-to-chip traffic crosses the link.
+  setup_ucie(UCIE_REG_BASE);
 
   // Chip 1 clears the done flags before peers can have routed any traffic
   // here (peers haven't programmed their router yet, and even after they do
