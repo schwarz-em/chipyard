@@ -11,6 +11,7 @@
 #include "mmio.h"
 #include "router.h"
 #include "ucie.h"
+#include "dma.h"
 
 #define N_CHIPS         2
 #define OFFCHIP_OFFSET  0x800000000L
@@ -18,9 +19,15 @@
 #define TCM_BASE_C0     0x70000000
 #define UCIE_REG_BASE   0x8000UL
 
+// 32-byte DMA transfers (matches the 256-bit SBUS/UCIe beat). slice_bytes must
+// be a multiple of (1 << DMA_XFER_LOGW); for M_DIM=128/N_DIM=64 the per-chip
+// slice is 64*64*4 = 16384 bytes = 512 * 32.
+#define DMA_XFER_LOGW   5
+
 int8_t *b_c0 = (int8_t*)TCM_BASE_C0;
 
-static int32_t c_opu[M_DIM*N_DIM];
+// Aligned to the DMA transfer width so each beat is naturally aligned.
+static int32_t c_opu[M_DIM*N_DIM] __attribute__((aligned(64)));
 
 // Done-flags live in chip 1's MBUS scratchpad. flags[i] is the "I'm done"
 // flag for chip with chip_id == i + 2 (chip 1 is the verifier, so it has no
@@ -104,19 +111,26 @@ void __main(void) {
   printf("Chip %lu: %lu cycles\n", chip_id, cycles_end - cycles_start);
 
   if (chip_id != 1) {
-    // Ship this chip's M-slice of c_opu into chip 1's c_opu over the
-    // chiplet link, using the standard offchip-alias trick.
+    // Ship this chip's M-slice of c_opu into chip 1's c_opu over the chiplet
+    // link via the DMA engine, using the standard offchip-alias trick.
     size_t slice_bytes = rows_per_chip * N_DIM * sizeof(int32_t);
     size_t slice_off   = m_start * N_DIM * sizeof(int32_t);
     void *remote_c_slice =
       (void*)((uint8_t*)c_opu + slice_off + OFFCHIP_OFFSET * 1);
+
+    // Make the GEMM's c_opu stores visible before the DMA reads them.
+    __sync_synchronize();
+
     size_t memcpy_start = read_csr(mcycle);
-    memcpy(remote_c_slice, c_opu + m_start * N_DIM, slice_bytes);
+    dma_c_memcpy((uint64_t)(c_opu + m_start * N_DIM),
+                 (uint64_t)remote_c_slice, slice_bytes, DMA_XFER_LOGW);
+    dma_wait_inactive(5);
+    size_t memcpy_end = read_csr(mcycle);
+    dma_reset();
 
     // Order the C write before the done-flag write.
     __sync_synchronize();
-    size_t memcpy_end = read_csr(mcycle);
-    printf("Chip %lu: chiplet memcpy %lu cycles\n", chip_id, memcpy_end - memcpy_start);
+    printf("Chip %lu: chiplet DMA memcpy %lu cycles\n", chip_id, memcpy_end - memcpy_start);
 
     // Set our done flag in chip 1's scratchpad.
     volatile uint64_t *remote_flag =

@@ -38,6 +38,7 @@ class DigitalTop(implicit p: Parameters) extends ChipyardSystem
   with rerocc.CanHaveReRoCCTiles // Support tiles that instantiate rerocc-attached accelerators
   with testchipip.ctc.CanHavePeripheryCTC // Support optional CTC link
   with testchipip.soc.CanHaveChipletRouting // Support optional chiplet router and translated D2D links
+  with dsp25_audio.CanHavePeripheryDMATile // Enables optionally adding the dsp25 DMA engine
 {
   override lazy val module = new DigitalTopModule(this)
 }

@@ -166,3 +166,6 @@
 [submodule "generators/ucie"]
 	path = generators/ucie
 	url = git@github.com:ucb-bar/ucie.git
+[submodule "generators/dsp25-audio"]
+	path = generators/dsp25-audio
+	url = git@github.com:schwarz-em/sp25-dma-secret.git

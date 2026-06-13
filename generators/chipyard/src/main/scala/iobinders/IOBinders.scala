@@ -599,6 +599,17 @@ class WithGCDIOPunchthrough extends OverrideIOBinder({
   }
 })
 
+// Tie off the dsp25 DMA's audio-peripheral handshake inputs. The mem-to-mem
+// (CPU channel) path does not use the peripheral channels, so we drive these
+// DigitalTop inputs to a quiescent value rather than exposing them as chip IO.
+class WithDMATilePeripheralTieoff extends OverrideIOBinder({
+  (system: dsp25_audio.CanHavePeripheryDMATile) => {
+    system.dma_peri_rx_ready_in.foreach { rx => rx.foreach(_ := false.B) }
+    system.dma_peri_tx_valid_in.foreach { tx => tx.foreach(_ := false.B) }
+    (Nil, Nil)
+  }
+})
+
 class WithOffchipBusSel extends OverrideIOBinder({
   (system: CanHaveSwitchableOffchipBus) => {
     system.io_obus_sel.getWrappedValue.map { sel =>
