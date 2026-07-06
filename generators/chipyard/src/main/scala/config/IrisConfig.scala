@@ -162,3 +162,18 @@ class UcieDmaDualIrisConfig extends Config(
   new chipyard.harness.WithMultiChip(0, new UcieDmaSinglecoreIrisConfig) ++
   new chipyard.harness.WithMultiChip(1, new UcieDmaSinglecoreIrisConfig)
 )
+
+// Single-chip Iris + UCIe with the mempress accelerator in memcopy mode
+// (MemLoader reads, MemWriter writes; beatBytes=32 matches the 256-bit beat,
+// MemPressMaxOutstandingReqs=32 matches the UCIe link maxInflight).
+class UcieMempressSinglecoreIrisConfig extends Config(
+  new mempress.WithMemPress(maxStreams=1, beatBytes=32, useMemLoader=true) ++
+  new UcieSinglecoreIrisConfig)
+
+class UcieMempressDualIrisConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
+  new chipyard.harness.WithMultiChip(0, new UcieMempressSinglecoreIrisConfig) ++
+  new chipyard.harness.WithMultiChip(1, new UcieMempressSinglecoreIrisConfig)
+)
