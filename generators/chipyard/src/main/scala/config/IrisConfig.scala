@@ -177,3 +177,21 @@ class UcieMempressDualIrisConfig extends Config(
   new chipyard.harness.WithMultiChip(0, new UcieMempressSinglecoreIrisConfig) ++
   new chipyard.harness.WithMultiChip(1, new UcieMempressSinglecoreIrisConfig)
 )
+
+// Single-chip Iris + UCIe with a dedicated Saturn DMA core in place of mempress:
+// a huge Rocket tile is appended (WithNHugeCores is additive, so the shuttle
+// core is untouched) and given a Saturn vector unit built with VectorParams.dmaParams,
+// which strips all arithmetic FUs so the vector pipeline only does memcpys.
+// dLen=vLen=256 matches the 256-bit SBUS/UCIe beat, mirroring DMAV256D256RocketConfig.
+class UcieSaturnDMASinglecoreIrisConfig extends Config(
+  new saturn.rocket.WithRocketVectorUnit(256, 256, VectorParams.dmaParams) ++
+  new freechips.rocketchip.rocket.WithNHugeCores(1) ++
+  new UcieSinglecoreIrisConfig)
+
+class UcieSaturnDMADualIrisConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
+  new chipyard.harness.WithMultiChip(0, new UcieSaturnDMASinglecoreIrisConfig) ++
+  new chipyard.harness.WithMultiChip(1, new UcieSaturnDMASinglecoreIrisConfig)
+)
