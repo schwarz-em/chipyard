@@ -52,14 +52,14 @@ for K in $KS; do
   echo "================ K=$K : regenerating dataset (M=$MDIM N=$NDIM K=$K) ================"
   if ! python3 "$GEMM_DIR/gendata.py" --mdim "$MDIM" --ndim "$NDIM" --kdim "$K" > "$DATASET"; then
     echo "  gendata.py failed for K=$K"
-    SUMMARY+=("$K gendata-failed - -")
+    SUMMARY+=("$K gendata-failed - - -")
     continue
   fi
 
   echo "================ K=$K : rebuilding ================"
   if ! cmake --build "$TESTS_DIR/build" --target opu-multichip-mempress-gemm 2>&1 | tail -3; then
     echo "  build failed for K=$K"
-    SUMMARY+=("$K build-failed - -")
+    SUMMARY+=("$K build-failed - - -")
     continue
   fi
 
@@ -73,16 +73,19 @@ for K in $KS; do
       EXTRA_SIM_FLAGS="+chip_id0=0x00004080:0x00000001 +chip_id1=0x00004080:0x00000002" \
       TIMEOUT_CYCLES="$TIMEOUT_CYCLES" ) 2>&1 | tee "$log"
 
-  # GEMM compute cycles (worker chip 2's timed pass) and the cross-chip mempress copy.
-  gemm=$(grep -oE "Chip 2: [0-9]+ cycles" "$log" | grep -oE "[0-9]+" | head -1)
+  # GEMM compute cycles for each chip's own timed pass (chip 1 is the
+  # verifier, chip 2 the worker -- both compute their own M-slice) and the
+  # cross-chip mempress copy.
+  gemm1=$(grep -oE "Chip 1: [0-9]+ cycles" "$log" | grep -oE "[0-9]+" | head -1)
+  gemm2=$(grep -oE "Chip 2: [0-9]+ cycles" "$log" | grep -oE "[0-9]+" | head -1)
   cpy=$(grep -oE "chiplet mempress memcpy [0-9]+ cycles" "$log" | grep -oE "[0-9]+" | head -1)
   if grep -q "SUCCESS;" "$log"; then status=PASS; else status=FAIL; fi
-  SUMMARY+=("$K ${gemm:-N/A} ${cpy:-N/A} $status")
+  SUMMARY+=("$K ${gemm1:-N/A} ${gemm2:-N/A} ${cpy:-N/A} $status")
 done
 
 echo
 echo "======================== K SWEEP SUMMARY ========================"
-printf "%-8s %-16s %-18s %-6s\n" "K_DIM" "gemm_cycles" "mempress_copy_cyc" "status"
+printf "%-8s %-16s %-16s %-18s %-6s\n" "K_DIM" "gemm_chip1_cyc" "gemm_chip2_cyc" "mempress_copy_cyc" "status"
 for row in "${SUMMARY[@]}"; do
-  printf "%-8s %-16s %-18s %-6s\n" $row
+  printf "%-8s %-16s %-16s %-18s %-6s\n" $row
 done
