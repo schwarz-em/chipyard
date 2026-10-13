@@ -433,6 +433,19 @@ lazy val ucie = withInitCheck((project in file("generators/ucie/scala")), "ucie"
     Compile / scalaSource := baseDirectory.value / "src",
     Compile / resourceDirectory := baseDirectory.value / "resources",
     Test / scalaSource := baseDirectory.value / "test" / "src",
+    // logphy/, protocol/, and top/ (the full spec stack) use Chisel 7-only APIs
+    // (chisel3.layers.Verification, chisel3.layer.LayerConfig). Nothing in tilelink/
+    // or phy/ depends on them, so exclude them when building with Chisel 6, which
+    // FireSim requires.
+    Compile / unmanagedSources := {
+      val files = (Compile / unmanagedSources).value
+      if (sys.env.contains("USE_CHISEL7")) files
+      else {
+        val src = (baseDirectory.value / "src").getCanonicalFile.toPath
+        val excluded = Seq("logphy", "protocol", "top").map(d => src.resolve(d))
+        files.filterNot(f => excluded.exists(d => f.getCanonicalFile.toPath.startsWith(d)))
+      }
+    },
     // Pull chippy intransitively: its POM declares unpublished transitive deps
     // (chisel 7.8.0, rocketchip/diplomacy/cde _2.13:0.0.1) that don't exist in any
     // repo. Chipyard already supplies those on the classpath via dependsOn(rocketchip)
