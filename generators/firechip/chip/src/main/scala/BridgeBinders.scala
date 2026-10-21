@@ -86,6 +86,19 @@ class WithCTCBridge extends HarnessBinder({
   }
 })
 
+// Chiplet-router D2D ports. Each link protocol supplies a D2DLinkAdapter that
+// maps its ChipletIO onto the generic D2D link bridge's per-cycle token.
+class WithD2DLinkBridge extends HarnessBinder({
+  case (th: FireSim, port: D2DPort, chipId: Int) => {
+    port.io match {
+      case io: testchipip.ctc.CTCBridgeIO =>
+        D2DLinkBridge(io, CTCLinkAdapter, th.harnessBinderClock, th.harnessBinderReset.asBool)(th.p)
+      case io =>
+        throw new Exception(s"WithD2DLinkBridge: no D2D link adapter for ${io.getClass.getName} (D2D port ${port.portId})")
+    }
+  }
+})
+
 class WithDMIBridge extends HarnessBinder({
   case (th: FireSim, port: DMIPort, chipId: Int) => {
     // This assumes that:

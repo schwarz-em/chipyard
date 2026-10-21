@@ -61,6 +61,13 @@ GEMMINI_VERILATOR_FLAGS = \
 	$(DEFAULT_MIDAS_VERILATOR_FLAGS) \
 	-Wno-WIDTHEXPAND
 
+# Same width warning from testchipip's CTC ("Operator DIV expects 8 bits on the
+# RHS, but RHS's CONST '3'h4' generates 3 bits"), see
+# generators/testchipip/src/main/scala/ctc/TileLinkToCTC.scala:98
+CTC_VERILATOR_FLAGS = \
+	$(DEFAULT_MIDAS_VERILATOR_FLAGS) \
+	-Wno-WIDTHEXPAND
+
 # Saturn/Shuttle vector configs can emit unsigned comparisons that Verilator
 # treats as fatal under the FireSim verilator backend.
 SHUTTLE_VECTOR_VERILATOR_FLAGS = \
@@ -80,6 +87,8 @@ EXTRA_VERILATOR_FLAGS = \
 			echo "$(SHUTTLE_VECTOR_VERILATOR_FLAGS)"; \
 		elif grep -Eiq "module.*shuttle.*vector|shuttle_tile.*vector_unit|vector_unit\.vu" $(simulator_verilog); then \
 			echo "$(SHUTTLE_VECTOR_VERILATOR_FLAGS)"; \
+		elif grep -iq "module TileLinkToCTC" $(simulator_verilog); then \
+			echo "$(CTC_VERILATOR_FLAGS)"; \
 		else \
 			echo "$(DEFAULT_MIDAS_VERILATOR_FLAGS)"; \
 		fi)

@@ -382,3 +382,24 @@ class CTCFireSimConfig extends Config(
   new FireSimRocketConfig
 )
 
+// CTC (no PHY) on the chiplet router's D2D port, through the generic D2D link
+// bridge. Off-chip addresses are chipID * 0x800000000 + local address, which
+// clears FireSim's 16 GiB of DRAM; see tests/d2d-ctc-test.c.
+class D2DCTCFireSimConfig extends Config(
+  new WithD2DLinkBridge ++
+  new chipyard.iobinders.WithD2DPunchthrough ++
+  new testchipip.soc.WithOffchipAddressRange(
+    freechips.rocketchip.diplomacy.AddressSet.misaligned(0x800000000L, 0x2000000000L)) ++
+  new testchipip.soc.WithChipletRouting(testchipip.soc.ChipletRoutingParams(
+    routerParams = testchipip.soc.OffchipRouterParams(tableEntries = 4),
+    ports = Seq(new testchipip.ctc.CTCParams(phyParams = None)))) ++
+  new FireSimRocketConfig
+)
+
+// The Corigine MimicTurbo GT has 8 GiB of host DRAM
+class D2DCTCFireSim4GiBDRAMConfig extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
+  new D2DCTCFireSimConfig
+)
+
+
