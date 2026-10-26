@@ -22,6 +22,7 @@ import testchipip.serdes._
 import testchipip.iceblk.{SimBlockDevice, BlockDeviceModel}
 import testchipip.cosim.{SpikeCosim}
 import testchipip.ctc.{CTCBridgeIO}
+import edu.berkeley.cs.uciedigital.tilelink.{UcieBumpsIO}
 import icenet.{NicLoopback, SimNetwork}
 import chipyard._
 import chipyard.clocking.{HasChipyardPRCI}
@@ -394,5 +395,24 @@ class WithD2DTiedOff(port_ids: Option[Seq[Int]] = None) extends HarnessBinder({
 class WithD2DLoopback(port_ids: Option[Seq[Int]] = None) extends HarnessBinder({
   case (th: HasHarnessInstantiators, port: D2DPort, chipId: Int) if (port_ids.map(_.contains(port.portId)).getOrElse(true)) => {
     port.io.loopback
+  }
+})
+
+class WithUciePhyBypassClocks(bypassClockMHz: Double = 8000.0, digitalBypassClockMHz: Double = 800.0, port_ids: Option[Seq[Int]] = None) extends HarnessBinder({
+  case (th: HasHarnessInstantiators, port: D2DPort, chipId: Int) if (port_ids.map(_.contains(port.portId)).getOrElse(true)) => {
+    port.io match {
+      case io: UcieBumpsIO => {
+        io.loopback
+        val bypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_bypass_clock_${chipId}_${port.portId}", bypassClockMHz)
+        val digitalBypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_digital_bypass_clock_${chipId}_${port.portId}", digitalBypassClockMHz)
+        io.phy.refClkP := DontCare
+        io.phy.refClkN := DontCare
+        io.phy.bypassClkP := bypassClock
+        io.phy.bypassClkN := (!bypassClock.asBool).asClock
+        io.phy.digitalBypassClk := digitalBypassClock
+        io.phy.pllRdacVref := 0.U
+      }
+      case _ =>
+    }
   }
 })

@@ -11,6 +11,7 @@ import freechips.rocketchip.util._
 
 import testchipip.serdes._
 import testchipip.ctc.{CTCBridgeIO}
+import edu.berkeley.cs.uciedigital.tilelink.{UcieBumpsIO}
 
 import chipyard._
 import chipyard.iobinders.{GetSystemParameters, JTAGChipIO, HasChipyardPorts, Port, SerialTLPort, CTCPort, D2DPort}
@@ -113,5 +114,29 @@ class WithMultiChipD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1portId
   (p1: D2DPort) => p1.portId == chip1portId,
   (th: HasHarnessInstantiators, p0: D2DPort, p1: D2DPort) => {
     p0.io.connect(p1.io)
+  }
+)
+
+class WithMultiChipUcieD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1portId: Int = 0, bypassClockMHz: Double = 8000.0, digitalBypassClockMHz: Double = 800.0) extends MultiHarnessBinder(
+  chip0, chip1,
+  (p0: D2DPort) => p0.portId == chip0portId,
+  (p1: D2DPort) => p1.portId == chip1portId,
+  (th: HasHarnessInstantiators, p0: D2DPort, p1: D2DPort) => {
+    p0.io.connect(p1.io)
+    (p0.io, p1.io) match {
+      case (io0: UcieBumpsIO, io1: UcieBumpsIO) => {
+        val bypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_bypass_clock_${chip0}_${chip1}", bypassClockMHz)
+        val digitalBypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_digital_bypass_clock_${chip0}_${chip1}", digitalBypassClockMHz)
+        Seq(io0, io1).foreach { io =>
+          io.phy.refClkP := DontCare
+          io.phy.refClkN := DontCare
+          io.phy.bypassClkP := bypassClock
+          io.phy.bypassClkN := (!bypassClock.asBool).asClock
+          io.phy.digitalBypassClk := digitalBypassClock
+          io.phy.pllRdacVref := 0.U
+        }
+      }
+      case _ =>
+    }
   }
 )
