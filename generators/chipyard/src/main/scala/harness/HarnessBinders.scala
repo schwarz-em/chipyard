@@ -398,19 +398,19 @@ class WithD2DLoopback(port_ids: Option[Seq[Int]] = None) extends HarnessBinder({
   }
 })
 
-class WithUciePhyBypassClocks(bypassClockMHz: Double = 8000.0, digitalBypassClockMHz: Double = 800.0, port_ids: Option[Seq[Int]] = None) extends HarnessBinder({
+class WithUciePhyBypassClocks(bypassClockMHz: Double = 8000.0, digitalBypassClockMHz: Double = 800.0, sidebandBypassClockMHz: Double = 800.0, refClockMHz: Double = 100.0, port_ids: Option[Seq[Int]] = None) extends HarnessBinder({
   case (th: HasHarnessInstantiators, port: D2DPort, chipId: Int) if (port_ids.map(_.contains(port.portId)).getOrElse(true)) => {
     port.io match {
       case io: UcieBumpsIO => {
         io.loopback
         val bypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_bypass_clock_${chipId}_${port.portId}", bypassClockMHz)
         val digitalBypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_digital_bypass_clock_${chipId}_${port.portId}", digitalBypassClockMHz)
-        io.phy.refClkP := DontCare
-        io.phy.refClkN := DontCare
-        io.phy.bypassClkP := bypassClock
-        io.phy.bypassClkN := (!bypassClock.asBool).asClock
+        val sidebandBypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_sideband_bypass_clock_${chipId}_${port.portId}", sidebandBypassClockMHz)
+        val refClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_ref_clock_${chipId}_${port.portId}", refClockMHz)
+        io.phy.bypassClk := bypassClock
         io.phy.digitalBypassClk := digitalBypassClock
-        io.phy.pllRdacVref := 0.U
+        io.phy.sidebandBypassClk := sidebandBypassClock
+        io.phy.refClk := refClock
       }
       case _ =>
     }

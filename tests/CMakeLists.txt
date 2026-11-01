@@ -95,6 +95,7 @@ add_executable(symmetric symmetric.c)
 add_executable(ctc-test ctc-test.c)
 add_executable(multi-ctc-test multi-ctc-test.c)
 add_executable(triple-chiplet triple-chiplet.c)
+add_executable(d2d-test d2d-test.c)
 # One binary per chip: FireSim gives every node the same plusargs
 foreach(chip 1 2)
     add_executable(d2d-ctc-test-chip${chip} d2d-ctc-test.c)
@@ -107,7 +108,7 @@ endforeach()
 set(NANO_TEST_TARGETS
     pwm blkdev accum charcount nic-loopback big-blkdev pingd
     streaming-passthrough streaming-fir nvdla spiflashread spiflashwrite
-    fft gcd hello mt-hello symmetric ctc-test multi-ctc-test triple-chiplet
+    fft gcd hello mt-hello symmetric ctc-test multi-ctc-test triple-chiplet d2d-test
     d2d-ctc-test-chip1 d2d-ctc-test-chip2)
 foreach(target IN LISTS NANO_TEST_TARGETS)
     set_property(TARGET ${target} APPEND PROPERTY SOURCES

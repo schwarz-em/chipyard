@@ -117,7 +117,7 @@ class WithMultiChipD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1portId
   }
 )
 
-class WithMultiChipUcieD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1portId: Int = 0, bypassClockMHz: Double = 8000.0, digitalBypassClockMHz: Double = 800.0) extends MultiHarnessBinder(
+class WithMultiChipUcieD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1portId: Int = 0, bypassClockMHz: Double = 8000.0, digitalBypassClockMHz: Double = 800.0, sidebandBypassClockMHz: Double = 800.0, refClockMHz: Double = 100.0) extends MultiHarnessBinder(
   chip0, chip1,
   (p0: D2DPort) => p0.portId == chip0portId,
   (p1: D2DPort) => p1.portId == chip1portId,
@@ -127,13 +127,13 @@ class WithMultiChipUcieD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1po
       case (io0: UcieBumpsIO, io1: UcieBumpsIO) => {
         val bypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_bypass_clock_${chip0}_${chip1}", bypassClockMHz)
         val digitalBypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_digital_bypass_clock_${chip0}_${chip1}", digitalBypassClockMHz)
+        val sidebandBypassClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_sideband_bypass_clock_${chip0}_${chip1}", sidebandBypassClockMHz)
+        val refClock = th.harnessClockInstantiator.requestClockMHz(s"ucie_ref_clock_${chip0}_${chip1}", refClockMHz)
         Seq(io0, io1).foreach { io =>
-          io.phy.refClkP := DontCare
-          io.phy.refClkN := DontCare
-          io.phy.bypassClkP := bypassClock
-          io.phy.bypassClkN := (!bypassClock.asBool).asClock
+          io.phy.bypassClk := bypassClock
           io.phy.digitalBypassClk := digitalBypassClock
-          io.phy.pllRdacVref := 0.U
+          io.phy.sidebandBypassClk := sidebandBypassClock
+          io.phy.refClk := refClock
         }
       }
       case _ =>
