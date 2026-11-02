@@ -260,8 +260,10 @@ lazy val chipyard = {
   )
 
   // Discover optional modules if their submodule is initialized
+  // TEMP (UCIe link-model measurements): these don't build under Chisel 7.
+  val chisel7Broken = Set("gemmini", "radiance", "mempress", "compress-acc", "caliptra-aes-acc")
   val discovered = optionalModules.filter { case (dir, _) =>
-    file(s"generators/$dir/.git").exists
+    file(s"generators/$dir/.git").exists && !(useChisel7 && chisel7Broken(dir))
   }
 
   // Wire in project dependencies only for discovered modules

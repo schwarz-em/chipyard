@@ -38,6 +38,7 @@ class DigitalTop(implicit p: Parameters) extends ChipyardSystem
   with rerocc.CanHaveReRoCCTiles // Support tiles that instantiate rerocc-attached accelerators
   with testchipip.ctc.CanHavePeripheryCTC // Support optional CTC link
   with testchipip.soc.CanHaveChipletRouting // Support optional chiplet router and translated D2D links
+  with edu.berkeley.cs.uciedigital.tilelink.CanHaveUcieRegs // Attach UCIe links' register ports to the router's control bus
 {
   override lazy val module = new DigitalTopModule(this)
 }

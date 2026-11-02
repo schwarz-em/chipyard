@@ -20,11 +20,14 @@ class UcieChipletConfig extends Config(
         testchipip.soc.OffchipRouterParams(tableEntries = 4),
       ports = Seq(
         UcieTLParams(
-          address = 0x8000,
+          // Its clock registers sit 0x10000 above the base, so 0x8000 would
+          // overlap the boot ROM.
+          address = 0x200000,
           managerWhere = SBUS,
           numLanes = 16,
           maxInflight = 32,
-          includeDefaultModels = true
+          includeDefaultModels = true,
+          sim = true
         )
       )
     )
