@@ -27,7 +27,8 @@ class UcieChipletConfig extends Config(
           numLanes = 16,
           maxInflight = 32,
           includeDefaultModels = true,
-          sim = true
+          sim = true,
+          latencyMonitor = true
         )
       )
     )
@@ -64,7 +65,8 @@ class UcieNoPhyChipletConfig extends Config(
         UcieTLParams(
           address = 0x8000,
           managerWhere = SBUS,
-          phy = false
+          phy = false,
+          latencyMonitor = true
         )
       )
     )
@@ -78,4 +80,31 @@ class DualUcieNoPhyConfig extends Config(
   new chipyard.harness.WithMultiChipD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
   new chipyard.harness.WithMultiChip(0, new UcieNoPhyChipletConfig) ++
   new chipyard.harness.WithMultiChip(1, new UcieNoPhyChipletConfig)
+)
+
+// Runs a UCIe chiplet's link, buses and cores all at `freqMHz`. They have to
+// move together: the chiplet router needs its buses at one frequency, and the
+// link's TL and register ports reach them without a clock crossing. The cores
+// follow so `rdcycle` counts bus cycles. The PHY's own clocks (the harness's
+// bypass, sideband and reference clocks) are unaffected.
+class WithUcieChipletFrequency(freqMHz: Double) extends Config(
+  new chipyard.clocking.ClockNameContainsAssignment("d2d", freqMHz) ++
+  new chipyard.config.WithTileFrequency(freqMHz) ++
+  new chipyard.config.WithUniformBusFrequencies(freqMHz)
+)
+
+class DualUcie1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieChipletFrequency(1000.0) ++ new UcieChipletConfig) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieChipletFrequency(1000.0) ++ new UcieChipletConfig)
+)
+
+class DualUcieNoPhy1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig)
 )
