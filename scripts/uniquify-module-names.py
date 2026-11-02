@@ -49,6 +49,9 @@ args = parser.parse_args()
 
 MODEL_SFX=args.model + "_UNIQUIFIED"
 
+# Each uniquified module's new name, by its original name.
+uniquified_names: Dict[str, str] = {}
+
 def die(msg: str) -> None:
   """Print a fatal error message and terminate.
 
@@ -480,6 +483,7 @@ def bfs_uniquify_modules(tree: Dict[str, Any],
         # add the uniquified module to the verilog_modul_filename dict
         new_mod = mod + "_" + MODEL_SFX
         verilog_module_filename[new_mod] = new_file
+        uniquified_names[mod] = new_mod
       except Exception as e:
         die(f"Failed to uniquify module '{mod}' from source '{cur_file}': {e}")
 
@@ -538,6 +542,74 @@ def uniquify_modules_under_model(modules_under_model: Set[str],
 
   return get_modules_under_hier_obj(imhj_data, args.dut)
 
+def uniquify_layer_files(model_only: Set[str]) -> List[str]:
+  """Give uniquified modules their own copies of their layer blocks.
+
+  firtool emits a module M's layer blocks (printfs, asserts) as separate bound
+  modules, which reach into M by upward reference (`M.sig`). A file
+  `layers-M-<Layer>.sv` binds them to M by module name and includes the same
+  file for each of M's children, and the root's file is compiled in. So a
+  uniquified copy of M would get none of M's printfs or asserts. This copies
+  the bind files and bound modules for each copy, and points the include files
+  of model-only modules (the copies' parents) at the copies' bind files.
+
+  Args:
+    model_only: Modules (by original name) only in the Model tree.
+
+  Returns:
+    The new bound-module sources, relative to gcpath, for the Model filelist.
+  """
+  ver_dir = os.path.join(args.gcpath, 'verification')
+  if not uniquified_names or not os.path.isdir(ver_dir):
+    return []
+
+  layer_file = re.compile(r'^layers-(?P<mod>[A-Za-z_][\w$]*)-(?P<rest>.+)\.sv$')
+  include = re.compile(r'(`include\s+"layers-)(?P<mod>[A-Za-z_][\w$]*)(?=-)')
+
+  def rename_includes(src: str) -> str:
+    return include.sub(lambda m: m.group(1) + uniquified_names.get(m.group('mod'), m.group('mod')), src)
+
+  sources: Dict[str, str] = {}  # file name -> path, for finding bound modules
+  layer_files: List[Tuple[str, str, str]] = []  # (dir, module, rest of name)
+  for root, _, files in os.walk(ver_dir):
+    for f in files:
+      sources[f] = os.path.join(root, f)
+      m = layer_file.match(f)
+      if m:
+        layer_files.append((root, m.group('mod'), m.group('rest')))
+
+  new_sources: List[str] = []
+  for (root, mod, rest) in layer_files:
+    path = os.path.join(root, f"layers-{mod}-{rest}.sv")
+    with open(path, encoding='utf-8') as f:
+      src = f.read()
+    if mod in uniquified_names:
+      new = uniquified_names[mod]
+      for bound in re.findall(rf'\bbind\s+{re.escape(mod)}\s+([A-Za-z_][\w$]*)', src):
+        if not bound.startswith(mod + "_") or (bound + ".sv") not in sources:
+          die(f"Can't find the module '{bound}' that '{path}' binds to '{mod}'")
+        new_bound = new + bound[len(mod):]
+        bound_path = sources[bound + ".sv"]
+        new_bound_path = os.path.join(os.path.dirname(bound_path), new_bound + ".sv")
+        with open(bound_path, encoding='utf-8') as f:
+          bound_src = f.read()
+        # Upward references into the bound-to module go by its name.
+        bound_src = re.sub(rf'\b{re.escape(mod)}\.', new + ".", bound_src)
+        with open(new_bound_path, 'w', encoding='utf-8') as f:
+          f.write(bound_src)
+        replace_module_decl(new_bound_path, bound, new_bound)
+        new_sources.append(os.path.relpath(new_bound_path, args.gcpath))
+        src = re.sub(rf'\bbind\s+{re.escape(mod)}\s+{re.escape(bound)}\b', f"bind {new} {new_bound}", src)
+      src = src.replace(f"layers_{mod}_", f"layers_{new}_")
+      with open(os.path.join(root, f"layers-{new}-{rest}.sv"), 'w', encoding='utf-8') as f:
+        f.write(rename_includes(src))
+    elif mod in model_only:
+      new_src = rename_includes(src)
+      if new_src != src:
+        with open(path, 'w', encoding='utf-8') as f:
+          f.write(new_src)
+  return new_sources
+
 def main() -> None:
   """Program entry: parse inputs, uniquify, and emit outputs."""
   verilog_module_filename = dict()
@@ -560,6 +632,7 @@ def main() -> None:
   # write model filelist
   written_model = write_verilog_filelist(uniquified_modules_under_model, verilog_module_filename, args.out_model_filelist)
   write_support_sv_files(support_sv_files, args.out_model_filelist)
+  write_support_sv_files(uniquify_layer_files(modules_under_model - common_modules), args.out_model_filelist)
   write_additional_sv_files(all_sv_files, written_model, args.out_model_filelist)
   write_cc_filelist     (cc_filelist, args.out_model_filelist)
 
