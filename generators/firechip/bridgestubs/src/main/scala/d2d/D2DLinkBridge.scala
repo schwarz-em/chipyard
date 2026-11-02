@@ -9,6 +9,7 @@ import org.chipsalliance.cde.config.Parameters
 
 import testchipip.soc.{ChipletIO}
 import testchipip.ctc.{CTC, CTCBridgeIO}
+import edu.berkeley.cs.uciedigital.tilelink.UciePacketIO
 
 import firesim.lib.bridgeutils._
 
@@ -107,19 +108,25 @@ object CTCLinkAdapter extends D2DLinkAdapter[CTCBridgeIO] {
 }
 
 // ---------------------------------------------------------------------------
-// UCIe (planned): the PHY-less UciePacketIO exposes UCIe's packetized,
-// credit-based TileLink stream, so the adapter is a direct map:
-//
-//   class UcieLinkToken(packetBits: Int) extends Bundle {
-//     val valid  = Bool()
-//     val packet = UInt(packetBits.W)   // ~386 bits -> one token per beat
-//   }
-//   object UcieLinkAdapter extends D2DLinkAdapter[UciePacketIO] {
-//     def tx(io) = Cat(io.tx.bits, io.tx.valid)
-//     def rx(io, t) = { io.rx.valid := t(0); io.rx.bits := t >> 1 }
-//     override def clock(io) = Some(io.clock)   // D2D clock domain
-//   }
-//
-// No credits are needed in the adapter because UCIe returns credits in band;
-// the credit pool (tlBufferDepth) just has to cover the round-trip latency.
+// UCIe (no PHY): one TL frame per cycle each way, valid-only, credits in band.
 // ---------------------------------------------------------------------------
+
+/** Maps `UciePacketIO` onto the token as `{frame, valid}`, valid in the LSB.
+  *
+  * No credits or buffering are needed here: UCIe returns credits in band, so
+  * the link tolerates any fixed latency as long as the credit pool
+  * (`UcieTLParams.tlBufferDepth`) covers the round trip. The link runs on the
+  * chiplet router's clock, which `UciePacketIO` carries.
+  */
+class UcieLinkAdapter(frameBits: Int) extends D2DLinkAdapter[UciePacketIO] {
+  val tokenBits = frameBits + 1
+
+  def tx(io: UciePacketIO): UInt = Cat(io.tx.bits, io.tx.valid)
+
+  def rx(io: UciePacketIO, token: UInt): Unit = {
+    io.rx.valid := token(0)
+    io.rx.bits  := token(tokenBits - 1, 1)
+  }
+
+  override def clock(io: UciePacketIO): Option[Clock] = Some(io.clock)
+}

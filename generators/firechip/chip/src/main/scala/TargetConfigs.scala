@@ -402,4 +402,26 @@ class D2DCTCFireSim4GiBDRAMConfig extends Config(
   new D2DCTCFireSimConfig
 )
 
+// UCIe without the PHY (`UciePacketIO`: TL frames with in-band credits) on the
+// chiplet router's D2D port, through the generic D2D link bridge. Same address
+// layout as D2DCTCFireSimConfig; see tests/d2d-test.c. The link runs on the
+// system bus clock, so it adds no clock domain.
+class UCIeFireSimConfig extends Config(
+  new WithD2DLinkBridge ++
+  new chipyard.iobinders.WithD2DPunchthrough ++
+  new testchipip.soc.WithOffchipAddressRange(
+    freechips.rocketchip.diplomacy.AddressSet.misaligned(0x800000000L, 0x2000000000L)) ++
+  new testchipip.soc.WithChipletRouting(testchipip.soc.ChipletRoutingParams(
+    routerParams = testchipip.soc.OffchipRouterParams(tableEntries = 4),
+    ports = Seq(edu.berkeley.cs.uciedigital.tilelink.UcieTLParams(
+      managerWhere = freechips.rocketchip.subsystem.SBUS,
+      phy = false)))) ++
+  new FireSimRocketConfig
+)
+
+class UCIeFireSim4GiBDRAMConfig extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
+  new UCIeFireSimConfig
+)
+
 

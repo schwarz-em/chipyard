@@ -93,6 +93,9 @@ class WithD2DLinkBridge extends HarnessBinder({
     port.io match {
       case io: testchipip.ctc.CTCBridgeIO =>
         D2DLinkBridge(io, CTCLinkAdapter, th.harnessBinderClock, th.harnessBinderReset.asBool)(th.p)
+      case io: edu.berkeley.cs.uciedigital.tilelink.UciePacketIO =>
+        // Clocked and reset by the link itself (the chiplet router's domain)
+        D2DLinkBridge(io, new UcieLinkAdapter(io.frameBits), th.harnessBinderClock, io.reset)(th.p)
       case io =>
         throw new Exception(s"WithD2DLinkBridge: no D2D link adapter for ${io.getClass.getName} (D2D port ${port.portId})")
     }
