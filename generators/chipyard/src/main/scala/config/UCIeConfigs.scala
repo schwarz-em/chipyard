@@ -4,7 +4,8 @@ import org.chipsalliance.cde.config.{Config}
 import freechips.rocketchip.diplomacy.{AddressSet}
 import freechips.rocketchip.subsystem.{SBUS}
 import testchipip.soc.{OBUS}
-import edu.berkeley.cs.uciedigital.tilelink.{UcieTLParams}
+import edu.berkeley.cs.uciedigital.tilelink.{UcieTLParams, UcieLinkModelParams}
+import saturn.common.{VectorParams}
 
 class UcieChipletConfig extends Config(
   new chipyard.iobinders.WithD2DPunchthrough ++
@@ -49,8 +50,9 @@ class DualUcieConfig extends Config(
 // the link themselves, e.g. FireSim's D2D link bridge. No UCIe registers, so
 // software does not call `setup_ucie()`. On its own the port is looped back.
 // The link runs on the system bus clock (the chiplet router's), so it has no
-// clock group of its own.
-class UcieNoPhyChipletConfig extends Config(
+// clock group of its own. `txQueueDepth` and `rxClockRatio` are
+// `UcieTLParams.noPhyTxQueueDepth` and `noPhyRxClockRatio`.
+class UcieNoPhyChipletConfig(txQueueDepth: Int = 0, rxClockRatio: Double = 0.0) extends Config(
   new chipyard.harness.WithD2DLoopback ++
   new chipyard.iobinders.WithD2DPunchthrough ++
   new chipyard.iobinders.WithSerialTLPunchthrough ++
@@ -66,6 +68,8 @@ class UcieNoPhyChipletConfig extends Config(
           address = 0x8000,
           managerWhere = SBUS,
           phy = false,
+          noPhyTxQueueDepth = txQueueDepth,
+          noPhyRxClockRatio = rxClockRatio,
           latencyMonitor = true
         )
       )
@@ -107,4 +111,57 @@ class DualUcieNoPhy1GHzConfig extends Config(
   new chipyard.harness.WithMultiChipD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
   new chipyard.harness.WithMultiChip(0, new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig) ++
   new chipyard.harness.WithMultiChip(1, new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig)
+)
+
+// `DualUcieNoPhy1GHzConfig` with the link timed like `DualUcie1GHzConfig`'s
+// (controller mode, 16 GT/s): for checking `UcieLinkModel` against the RTL.
+class DualUcieNoPhyModel1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieLinkModel(chip0=1, chip1=0, params=UcieLinkModelParams(fSbusMHz = 1000.0, linkLatency = 83)) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig)
+)
+
+// The 1 GHz pair with a Saturn DMA vector unit on each chip's core, for traffic
+// with many requests in flight. The vector unit's memory port is as wide as
+// the system bus (64 bits), so each request is one beat.
+class WithUcieSaturnDMA extends Config(
+  new saturn.rocket.WithRocketVectorUnit(256, 64, VectorParams.dmaParams)
+)
+
+class DualUcieSaturn1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieD2D(chip0=1, chip1=0, chip0portId=0, chip1portId=0) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieChipletConfig) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieChipletConfig)
+)
+
+class DualUcieNoPhyModelSaturn1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieLinkModel(chip0=1, chip1=0, params=UcieLinkModelParams(fSbusMHz = 1000.0, linkLatency = 83)) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig)
+)
+
+// `DualUcieNoPhyModelSaturn1GHzConfig` with a 32-frame queue in front of the
+// link model, like the controller's `txAQ`.
+class DualUcieNoPhyModelQueueSaturn1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieLinkModel(chip0=1, chip1=0, params=UcieLinkModelParams(fSbusMHz = 1000.0, linkLatency = 83)) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig(txQueueDepth = 32)) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig(txQueueDepth = 32))
+)
+
+// The queued model plus the controller's RX crossing timing (800 MHz sideband
+// into the 1 GHz link clock).
+class DualUcieNoPhyModelQueueRxSaturn1GHzConfig extends Config(
+  new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
+  new chipyard.harness.WithANDSuccessFn ++
+  new chipyard.harness.WithMultiChipUcieLinkModel(chip0=1, chip1=0, params=UcieLinkModelParams(fSbusMHz = 1000.0, linkLatency = 83)) ++
+  new chipyard.harness.WithMultiChip(0, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig(txQueueDepth = 32, rxClockRatio = 0.8)) ++
+  new chipyard.harness.WithMultiChip(1, new WithUcieSaturnDMA ++ new WithUcieChipletFrequency(1000.0) ++ new UcieNoPhyChipletConfig(txQueueDepth = 32, rxClockRatio = 0.8))
 )

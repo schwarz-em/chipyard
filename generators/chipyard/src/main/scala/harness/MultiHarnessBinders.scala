@@ -11,7 +11,7 @@ import freechips.rocketchip.util._
 
 import testchipip.serdes._
 import testchipip.ctc.{CTCBridgeIO}
-import edu.berkeley.cs.uciedigital.tilelink.{UcieBumpsIO}
+import edu.berkeley.cs.uciedigital.tilelink.{UcieBumpsIO, UciePacketIO, UcieLinkModel, UcieLinkModelParams}
 
 import chipyard._
 import chipyard.iobinders.{GetSystemParameters, JTAGChipIO, HasChipyardPorts, Port, SerialTLPort, CTCPort, D2DPort}
@@ -114,6 +114,20 @@ class WithMultiChipD2D(chip0: Int, chip1: Int, chip0portId: Int = 0, chip1portId
   (p1: D2DPort) => p1.portId == chip1portId,
   (th: HasHarnessInstantiators, p0: D2DPort, p1: D2DPort) => {
     p0.io.connect(p1.io)
+  }
+)
+
+// Joins two PHY-less UCIe ports (`UciePacketIO`) through `UcieLinkModel`: each
+// sender limited to the real link's frame rate, and `params.latencyCycles` of
+// delay each way. Both chips' links must run on the same clock.
+class WithMultiChipUcieLinkModel(chip0: Int, chip1: Int, params: UcieLinkModelParams, chip0portId: Int = 0, chip1portId: Int = 0) extends MultiHarnessBinder(
+  chip0, chip1,
+  (p0: D2DPort) => p0.portId == chip0portId,
+  (p1: D2DPort) => p1.portId == chip1portId,
+  (th: HasHarnessInstantiators, p0: D2DPort, p1: D2DPort) => {
+    (p0.io, p1.io) match {
+      case (io0: UciePacketIO, io1: UciePacketIO) => UcieLinkModel.connect(io0, io1, params)
+    }
   }
 )
 

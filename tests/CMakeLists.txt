@@ -99,6 +99,16 @@ add_executable(d2d-test d2d-test.c)
 add_executable(ucie-latency ucie-latency.c)
 target_compile_definitions(ucie-latency PRIVATE UCIE_PHY)
 add_executable(ucie-latency-nophy ucie-latency.c)
+add_executable(ucie-traffic ucie-traffic.c)
+target_compile_definitions(ucie-traffic PRIVATE UCIE_PHY)
+add_executable(ucie-traffic-nophy ucie-traffic.c)
+add_executable(ucie-dma ucie-dma.c)
+target_compile_definitions(ucie-dma PRIVATE UCIE_PHY)
+add_executable(ucie-dma-nophy ucie-dma.c)
+foreach(target ucie-dma ucie-dma-nophy)
+    target_compile_options(${target} PRIVATE -march=rv64gcv)
+    target_link_options(${target} PRIVATE -march=rv64gcv)
+endforeach()
 # One binary per chip: FireSim gives every node the same plusargs
 foreach(chip 1 2)
     add_executable(d2d-ctc-test-chip${chip} d2d-ctc-test.c)
@@ -115,7 +125,7 @@ set(NANO_TEST_TARGETS
     streaming-passthrough streaming-fir nvdla spiflashread spiflashwrite
     fft gcd hello mt-hello symmetric ctc-test multi-ctc-test triple-chiplet d2d-test
     d2d-ctc-test-chip1 d2d-ctc-test-chip2 d2d-test-chip1 d2d-test-chip2
-    ucie-latency ucie-latency-nophy)
+    ucie-latency ucie-latency-nophy ucie-traffic ucie-traffic-nophy ucie-dma ucie-dma-nophy)
 foreach(target IN LISTS NANO_TEST_TARGETS)
     set_property(TARGET ${target} APPEND PROPERTY SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/atexit-workaround.c)
