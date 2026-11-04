@@ -88,12 +88,19 @@ class WithCTCBridge extends HarnessBinder({
 
 // Chiplet-router D2D ports. Each link protocol supplies a D2DLinkAdapter that
 // maps its ChipletIO onto the generic D2D link bridge's per-cycle token.
-class WithD2DLinkBridge extends HarnessBinder({
+// `ucieLinkModel` times PHY-less UCIe links: its rate is applied here, on the
+// FPGA; its latency is the bridge's (`+d2d_latency`, set to
+// `ucieLinkModel.latencyCycles` plus any wire delay at runtime).
+class WithD2DLinkBridge(
+  ucieLinkModel: edu.berkeley.cs.uciedigital.tilelink.UcieLinkModelParams =
+    edu.berkeley.cs.uciedigital.tilelink.UcieLinkModelParams()
+) extends HarnessBinder({
   case (th: FireSim, port: D2DPort, chipId: Int) => {
     port.io match {
       case io: testchipip.ctc.CTCBridgeIO =>
         D2DLinkBridge(io, CTCLinkAdapter, th.harnessBinderClock, th.harnessBinderReset.asBool)(th.p)
       case io: edu.berkeley.cs.uciedigital.tilelink.UciePacketIO =>
+        edu.berkeley.cs.uciedigital.tilelink.UcieLinkModel(io, ucieLinkModel)
         // Clocked and reset by the link itself (the chiplet router's domain)
         D2DLinkBridge(io, new UcieLinkAdapter(io.frameBits), th.harnessBinderClock, io.reset)(th.p)
       case io =>

@@ -405,7 +405,11 @@ class D2DCTCFireSim4GiBDRAMConfig extends Config(
 // UCIe without the PHY (`UciePacketIO`: TL frames with in-band credits) on the
 // chiplet router's D2D port, through the generic D2D link bridge. Same address
 // layout as D2DCTCFireSimConfig; see tests/d2d-test.c. The link runs on the
-// system bus clock, so it adds no clock domain.
+// system bus clock, so it adds no clock domain. It is timed like the
+// controller + PHY link at 16 GT/s (`UcieLinkModelParams` defaults: 0.5 frames
+// per cycle at 1 GHz, 83 cycles one way, which the runtime config's
+// `+d2d_latency` must match), with a 32-frame TX queue like the controller's
+// `txAQ` (see UCIE_LINK_MODEL_RESULTS.md).
 class UCIeFireSimConfig extends Config(
   new WithD2DLinkBridge ++
   new chipyard.iobinders.WithD2DPunchthrough ++
@@ -415,7 +419,8 @@ class UCIeFireSimConfig extends Config(
     routerParams = testchipip.soc.OffchipRouterParams(tableEntries = 4),
     ports = Seq(edu.berkeley.cs.uciedigital.tilelink.UcieTLParams(
       managerWhere = freechips.rocketchip.subsystem.SBUS,
-      phy = false)))) ++
+      phy = false,
+      noPhyTxQueueDepth = 32)))) ++
   new FireSimRocketConfig
 )
 
