@@ -21,6 +21,8 @@ import icenet._
 import chipyard.clocking.{ChipyardPRCIControlKey}
 import chipyard.harness.{HarnessClockInstantiatorKey}
 
+import scala.collection.immutable.ListMap
+
 // Disables clock-gating; doesn't play nice with our FAME-1 pass
 class WithoutClockGating extends Config((site, here, up) => {
   case DebugModuleKey => up(DebugModuleKey).map(_.copy(clockGate = false))
@@ -430,3 +432,102 @@ class UCIeFireSim4GiBDRAMConfig extends Config(
 )
 
 
+class IrisFiresimConfig extends Config(
+  new firechip.chip.WithDefaultFireSimBridges ++
+  new WithFireSimHarnessClockBridgeInstantiator ++
+  // new chipyard.harness.WithHarnessBinderClockFreqMHz(1000.0) ++
+  new chipyard.harness.WithClockFromHarness ++
+  new chipyard.harness.WithResetFromHarness ++
+  new chipyard.config.WithNoClockTap ++
+  new chipyard.clocking.WithPassthroughClockGenerator ++
+  // Required: Existing FAME-1 transform cannot handle black-box clock gates
+  new WithoutClockGating ++
+  // Optional: Do not support debug module w. JTAG until FIRRTL stops emitting @(posedge ~clock)
+  new chipyard.config.WithNoDebug ++
+
+  new testchipip.serdes.WithSerialTL(Seq(
+    testchipip.serdes.SerialTLParams(
+      manager = None,
+      client = Some(testchipip.serdes.SerialTLClientParams()),                                        // Allow chip to access this device's memory (DRAM)
+      phyParams = testchipip.serdes.DecoupledExternalSyncSerialPhyParams(phitWidth=32, flitWidth=32)  // serial-tilelink interface with 32 lanes
+    ),
+    testchipip.serdes.SerialTLParams(
+      // port acts as a manager of offchip memory
+      manager = Some(testchipip.serdes.SerialTLManagerParams(
+        memParams = Seq(testchipip.serdes.ManagerRAMParams(
+          address = BigInt("80000000", 16),
+          size = BigInt("100000000", 16)
+        )),
+        isMemoryDevice = true,
+        slaveWhere = MBUS
+      )),
+      // Allow an external manager to probe this chip
+      client = Some(testchipip.serdes.SerialTLClientParams()),
+      // 16-bit bidir interface, synced to an external clock
+      phyParams = testchipip.serdes.DecoupledExternalSyncSerialPhyParams(phitWidth=16, flitWidth=16)  // serial-tilelink interface with 16 lanes
+    ))
+  ) ++
+  
+  new chipyard.config.WithUART(
+    baudrate=BigInt(3686400L),
+    txEntries=256, rxEntries=256) ++        // FireSim requires a larger UART FIFO buffer,
+  new chipyard.config.WithNoUART() ++       // so we overwrite the default one
+
+  new chipyard.IrisConfig
+)
+
+class IrisFiresimBringupConfig extends Config(
+  //=============================
+  // Set up TestHarness for standalone-sim
+  //=============================
+  new firechip.chip.WithDefaultFireSimBridges ++
+  new WithFireSimHarnessClockBridgeInstantiator ++
+  // new chipyard.harness.WithHarnessBinderClockFreqMHz(1000.0) ++
+  new chipyard.harness.WithClockFromHarness ++
+  new chipyard.harness.WithResetFromHarness ++
+  new chipyard.config.WithNoClockTap ++
+  new chipyard.clocking.WithPassthroughClockGenerator ++
+  new WithoutClockGating ++
+
+  //=============================
+  // Setup the SerialTL side on the bringup device
+  //=============================
+  new testchipip.serdes.WithSerialTL(Seq(testchipip.serdes.SerialTLParams(
+    manager = Some(testchipip.serdes.SerialTLManagerParams(
+      memParams = Seq(testchipip.serdes.ManagerRAMParams(                            // Bringup platform can access all memory from 0 to DRAM_BASE
+        address = BigInt("00000000", 16),
+        size    = BigInt("80000000", 16)
+      ))
+    )),
+    client = Some(testchipip.serdes.SerialTLClientParams()),                                        // Allow chip to access this device's memory (DRAM)
+    phyParams = testchipip.serdes.DecoupledInternalSyncSerialPhyParams(phitWidth=16, flitWidth=16, freqMHz = 100) // bringup platform provides the clock
+  ))) ++
+
+  //============================
+  // Setup bus topology on the bringup system
+  //============================
+  new testchipip.soc.WithOffchipBusClient(SBUS,                                // offchip bus hangs off the SBUS
+    blockRange = AddressSet.misaligned(0x80000000L, (BigInt(1) << 30) * 4)) ++ // offchip bus should not see the main memory of the testchip, since that can be accessed directly
+  new testchipip.soc.WithOffchipBus ++                                         // offchip bus
+
+  //=============================
+  // Set up memory on the bringup system
+  //=============================
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++         // match what the chip believes the max size should be
+
+  //=============================
+  // Set up clocks of the bringup system
+  //=============================
+  new chipyard.config.WithUniformBusFrequencies(1000) ++   // run all buses of this system at 75 MHz
+
+  // Base is the no-cores config
+  new chipyard.NoCoresConfig
+)
+
+class IrisFiresimNOCflushCombinedConfig extends Config(
+  new WithFireSimHarnessClockBridgeInstantiator ++
+  new chipyard.harness.WithMultiChipSerialTL(0, 1, 1, 0) ++                // connect the serial-tl ports of the chips together
+  new chipyard.harness.WithMultiChip(0, new IrisFiresimConfig) ++
+  new chipyard.harness.WithMultiChip(1, new IrisFiresimBringupConfig)
+
+)
