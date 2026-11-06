@@ -20,7 +20,13 @@ import saturn.common.{VectorParams}
 //   * an SBUS scratchpad sized by the study (8 MB / 16 MB builds)
 //   * two PHY-less UCIe ports on the chiplet router (M5), as UCIeFireSimConfig
 //   * 1 GHz tiles, buses and d2d
-//   * no Tacit trace
+//   * no Tacit
+//   * a crossbar SBUS instead of Iris's Constellation NoC (sbusNoC = false):
+//     the NoC caps DMA copies at ~3.5-5.5 B/cycle (iris docs/NOC_BANDWIDTH.md)
+//   * 32-B Shuttle tile port (iris 0d5ab69: 16 B), so a TCM fills at up to
+//     32 B/cycle instead of ~15
+//   * the mempress memcopy engine (RoCC, hart 2) for weight/KV streams, next to
+//     Saturn's DMA unit, which drops to ~0.8 B/cycle on slow DRAM trace
 // Everything else (tiles, Saturn/OPU, TCMs, L2, NoC topology) is IrisConfig's.
 // ============================================================================
 
@@ -95,8 +101,25 @@ class WithIrisStudyUncore(spadBytes: BigInt) extends Config(
   new chipyard.config.AbstractConfig
 )
 
+/** The mempress memcopy engine (mempress `dma` branch, RoCC custom2) on Rocket
+  * hart 2 only: separate read and write L2 helpers, 32-B beats, 32 outstanding
+  * requests each. Shuttle tiles also read BuildRoCC, so WithMultiRoCC scopes
+  * it. Driver: sram-vs-bw-study/llm-bm/bench/dma_compare.c (mempress_copy).
+  */
+class WithIrisStudyMempress extends Config(
+  new chipyard.config.WithMultiRoCC ++
+  new chipyard.config.WithMultiRoCCFromBuildRoCC(2) ++
+  new mempress.WithMemPress(maxStreams = 1, beatBytes = 32, useMemLoader = true)
+)
+
 /** The study chiplet (no harness/FireSim specifics). */
-class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1, sbusNoC: Boolean = true) extends Config(
+class IrisStudyConfig(
+  spadBytes: BigInt = BigInt(8) << 20,
+  memChannels: Int = 1,
+  sbusNoC: Boolean = false,      // true: Iris's Constellation NoC (for the NoC findings)
+  mempressDMA: Boolean = true,
+  tilePortBytes: Int = 32        // Shuttle tile (TCM) port; iris 0d5ab69 uses 16
+) extends Config(
   new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
 
   // 1 GHz everywhere (tiles, buses, d2d), as the UCIe bridge configs
@@ -104,6 +127,7 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1,
 
   new WithIrisStudyUcie ++
   new WithIrisStudyMemory(memChannels) ++
+  (if (mempressDMA) new WithIrisStudyMempress else Parameters.empty) ++
 
   // ==================================
   // Buses: IrisConfig's SBUS NoC, plus the study's new edges
@@ -144,7 +168,7 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1,
   // Shuttle tiles + Saturn/OPU (harts 0-1)
   // ==================================
   new saturn.shuttle.WithShuttleVectorUnit(256, 128, VectorParams.opuMxParams) ++
-  new shuttle.common.WithShuttleTileBeatBytes(16) ++      // iris 0d5ab69 (iris-cy: 32)
+  new shuttle.common.WithShuttleTileBeatBytes(tilePortBytes) ++   // iris 0d5ab69: 16, iris-cy: 32
   new shuttle.common.WithTCM(size = 128L << 10, banks = 2) ++
   new shuttle.common.WithShuttleTileBoundaryBuffers() ++
   new shuttle.common.WithL1ICacheWays(2) ++
@@ -157,36 +181,27 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1,
   new WithIrisStudyUncore(spadBytes)
 )
 
-/** Chipyard RTL sim (sims/vcs) of the study chiplet: both D2D ports tied off,
-  * memory on the harness's SimDRAM. For the L2-bypass, DMA -> TCM and
-  * address-map checks before FireSim (plans/M2.md gate 1).
+/** Chipyard RTL sim (sims/vcs) of the study chiplet (crossbar SBUS, mempress),
+  * both D2D ports tied off, memory on the harness's SimDRAM.
   */
 class IrisStudyRTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
   new IrisStudyConfig
 )
 
-/** IrisStudyRTLConfig plus the mempress memcopy engine (mempress `dma` branch,
-  * RoCC custom2) on Rocket hart 2, next to Saturn's DMA unit, for the DMA
-  * engine comparison (plans/M2.md). Separate read and write L2 helpers, 32-B
-  * beats, 32 outstanding requests each. Shuttle tiles also read BuildRoCC, so
-  * WithMultiRoCC scopes it to hart 2.
+/** Iris's interconnect as taped out (iris 0d5ab69): Constellation SBUS NoC and
+  * 16-B Shuttle tile ports. Reproduces the NoC copy-bandwidth findings (iris
+  * docs/NOC_BANDWIDTH.md).
   */
-class IrisStudyMempressRTLConfig extends Config(
-  new chipyard.config.WithMultiRoCC ++
-  new chipyard.config.WithMultiRoCCFromBuildRoCC(2) ++
-  new mempress.WithMemPress(maxStreams = 1, beatBytes = 32, useMemLoader = true) ++
-  new IrisStudyRTLConfig
+class IrisStudyNoCRTLConfig extends Config(
+  new chipyard.harness.WithD2DTiedOff ++
+  new IrisStudyConfig(sbusNoC = true, tilePortBytes = 16)
 )
 
-/** IrisStudyMempressRTLConfig with a plain crossbar SBUS instead of Iris's
-  * Constellation NoC: diagnostic, to tell whether the NoC caps DMA copies at
-  * ~5 B/cycle (plans/M2.md).
+/** IrisStudyNoCRTLConfig with a crossbar SBUS: same 16-B tile ports, so the
+  * difference from IrisStudyNoCRTLConfig is the NoC alone.
   */
-class IrisStudyXbarMempressRTLConfig extends Config(
-  new chipyard.config.WithMultiRoCC ++
-  new chipyard.config.WithMultiRoCCFromBuildRoCC(2) ++
-  new mempress.WithMemPress(maxStreams = 1, beatBytes = 32, useMemLoader = true) ++
+class IrisStudyXbar16RTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
-  new IrisStudyConfig(sbusNoC = false)
+  new IrisStudyConfig(tilePortBytes = 16)
 )
