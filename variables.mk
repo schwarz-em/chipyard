@@ -298,7 +298,14 @@ PERMISSIVE_OFF=+permissive-off
 BINARY ?=
 BINARIES ?=
 BINARY_ARGS ?=
+# NO_DRAMSIM=1: SimDRAM's fixed-latency model instead of DRAMSim2. DRAMSim2 prints a
+# warning for every request not aligned to its 64-B burst (e.g. 32-B DMA beats), which
+# floods the log and slows the sim.
+ifeq ($(NO_DRAMSIM),1)
+override SIM_FLAGS += +max-cycles=$(TIMEOUT_CYCLES)
+else
 override SIM_FLAGS += +dramsim +dramsim_ini_dir=$(TESTCHIP_DIR)/src/main/resources/dramsim2_ini +max-cycles=$(TIMEOUT_CYCLES)
+endif
 VERBOSE_FLAGS ?= +verbose
 # get_out_name is a function, 1st argument is the binary
 get_out_name = $(subst $() $(),_,$(notdir $(basename $(1))))

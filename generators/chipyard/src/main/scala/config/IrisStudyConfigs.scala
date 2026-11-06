@@ -96,7 +96,7 @@ class WithIrisStudyUncore(spadBytes: BigInt) extends Config(
 )
 
 /** The study chiplet (no harness/FireSim specifics). */
-class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1) extends Config(
+class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1, sbusNoC: Boolean = true) extends Config(
   new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
 
   // 1 GHz everywhere (tiles, buses, d2d), as the UCIe bridge configs
@@ -108,7 +108,7 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1)
   // ==================================
   // Buses: IrisConfig's SBUS NoC, plus the study's new edges
   // ==================================
-  new constellation.soc.WithSbusNoC(
+  (if (!sbusNoC) Parameters.empty else new constellation.soc.WithSbusNoC(
     IrisNoCParams(
       constellation.protocol.DiplomaticNetworkNodeMapping(
         inNodeMapping = ListMap(
@@ -116,6 +116,7 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1)
           "Core 1 ICache" -> 2,      // Shuttle 1 (right)
           "serial_tl_0_0[0]" -> 6,   // Front BUS
           "Core 2 DCache" -> 4,      // RocketTile (Saturn DMA)
+          "stream[" -> 4,            // mempress memcopy read/write helpers on hart 2 (IrisStudyMempressRTLConfig only)
           "ucie-client" -> 5         // both UCIe client edges ("[0]|", "[1]|")
         ),
         outNodeMapping = ListMap(
@@ -130,7 +131,7 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1)
       )
     ),
     inlineNoC = true
-  ) ++
+  )) ++
   new WithIrisBusTweaks ++           // 32-B SBUS
 
   // ==================================
@@ -163,4 +164,29 @@ class IrisStudyConfig(spadBytes: BigInt = BigInt(8) << 20, memChannels: Int = 1)
 class IrisStudyRTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
   new IrisStudyConfig
+)
+
+/** IrisStudyRTLConfig plus the mempress memcopy engine (mempress `dma` branch,
+  * RoCC custom2) on Rocket hart 2, next to Saturn's DMA unit, for the DMA
+  * engine comparison (plans/M2.md). Separate read and write L2 helpers, 32-B
+  * beats, 32 outstanding requests each. Shuttle tiles also read BuildRoCC, so
+  * WithMultiRoCC scopes it to hart 2.
+  */
+class IrisStudyMempressRTLConfig extends Config(
+  new chipyard.config.WithMultiRoCC ++
+  new chipyard.config.WithMultiRoCCFromBuildRoCC(2) ++
+  new mempress.WithMemPress(maxStreams = 1, beatBytes = 32, useMemLoader = true) ++
+  new IrisStudyRTLConfig
+)
+
+/** IrisStudyMempressRTLConfig with a plain crossbar SBUS instead of Iris's
+  * Constellation NoC: diagnostic, to tell whether the NoC caps DMA copies at
+  * ~5 B/cycle (plans/M2.md).
+  */
+class IrisStudyXbarMempressRTLConfig extends Config(
+  new chipyard.config.WithMultiRoCC ++
+  new chipyard.config.WithMultiRoCCFromBuildRoCC(2) ++
+  new mempress.WithMemPress(maxStreams = 1, beatBytes = 32, useMemLoader = true) ++
+  new chipyard.harness.WithD2DTiedOff ++
+  new IrisStudyConfig(sbusNoC = false)
 )
