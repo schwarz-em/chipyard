@@ -54,7 +54,13 @@ include $(base_dir)/common.mk
 #########################################################################################
 # vcs binary and arguments
 #########################################################################################
-VCS = vcs -full64
+# VCS compiles its generated C (rmapats.c) with a bare `gcc`, which resolves to the
+# conda GCC 15 and fails on implicit declarations. Put a directory containing only
+# `gcc` -> $(VCS_GCC) first on PATH for the vcs call (/nscratch/schwarzem/TOOLS.md).
+VCS_GCC ?= /usr/bin/gcc
+VCS_GCC_DIR = $(build_dir)/vcs-gcc
+VCS = mkdir -p $(VCS_GCC_DIR) && ln -sf $(VCS_GCC) $(VCS_GCC_DIR)/gcc && \
+	PATH=$(VCS_GCC_DIR):$$PATH vcs -full64
 
 VCS_OPTS = $(VCS_CC_OPTS) $(VCS_NONCC_OPTS) $(SIM_PREPROC_DEFINES) $(VCS_PREPROC_DEFINES)
 

@@ -531,3 +531,34 @@ class IrisFiresimNOCflushCombinedConfig extends Config(
   new chipyard.harness.WithMultiChip(1, new IrisFiresimBringupConfig)
 
 )
+// ============================================================================
+// SRAM-vs-BW study (sram-vs-bw-study/plans/M2.md): chipyard.IrisStudyConfig in
+// FireSim. Built with PLATFORM_CONFIG HBM2FRFCFS16GBDualPC_BaseCorigineMimicTurboGTConfig
+// and runtime conf hbm2-FRFCFS-2000-OP-REFSB-1ch.conf (one FASED HBM2 instance
+// per memory channel). The two UCIe ports go through WithD2DLinkBridge; a
+// 2-chip run is two simulators of this same config joined by the
+// +d2d_fifodir/+d2d_peer_* plusargs, with +d2d_latency=83.
+// ============================================================================
+class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1) extends Config(
+  new WithD2DLinkBridge ++
+  new chipyard.iobinders.WithD2DPunchthrough ++
+  new firechip.chip.WithDefaultFireSimBridges ++
+  new WithFireSimHarnessClockBridgeInstantiator ++
+  new chipyard.harness.WithClockFromHarness ++
+  new chipyard.harness.WithResetFromHarness ++
+  new chipyard.config.WithNoClockTap ++
+  new chipyard.clocking.WithPassthroughClockGenerator ++
+  // Required: Existing FAME-1 transform cannot handle black-box clock gates
+  new WithoutClockGating ++
+  // Optional: Do not support debug module w. JTAG until FIRRTL stops emitting @(posedge ~clock)
+  new chipyard.config.WithNoDebug ++
+  // FireSim requires a larger UART FIFO buffer (as IrisFiresimConfig)
+  new chipyard.config.WithUART(baudrate = BigInt(3686400L), txEntries = 256, rxEntries = 256) ++
+  new chipyard.config.WithNoUART() ++
+  new chipyard.IrisStudyConfig(spadBytes, memChannels)
+)
+
+class IrisStudy8MBFireSimConfig  extends IrisStudyFireSimConfig(BigInt(8) << 20)
+class IrisStudy16MBFireSimConfig extends IrisStudyFireSimConfig(BigInt(16) << 20)
+// Second HBM bandwidth point if runtime throttling doesn't work (M2 gate 3)
+class IrisStudy8MB2ChFireSimConfig extends IrisStudyFireSimConfig(BigInt(8) << 20, memChannels = 2)

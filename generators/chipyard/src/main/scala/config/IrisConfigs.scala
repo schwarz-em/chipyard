@@ -100,14 +100,9 @@ object IrisNoCParams {
     )
 }
 
-/** Tacit trace encoder and trace sinks. */
-class WithIrisTacitTrace
-    extends Config(
-      new tacit.WithTraceSinkDMA(1) ++
-        new tacit.WithTraceSinkAlways(0) ++
-        new chipyard.WithTacitTraceArbiterMonitor ++
-        new chipyard.WithTacitParallelEncoder
-    )
+// Tacit trace (WithIrisTacitTrace) removed for the SRAM-vs-BW study: the
+// tacit generator and chipyard's Tacit fragments are not in this tree, and the
+// study does not use tracing (sram-vs-bw-study/PLAN.md 4.1).
 
 /** Widens the SBUS to 256b and drops the per-bus error devices. Sits on top of
   * the chip-specific WithSbusNoC.
@@ -233,7 +228,6 @@ class WithIrisUncore(sim: Boolean = false) extends Config(
   */
 class IrisConfig extends Config(
       new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
-      new WithIrisTacitTrace ++
 
         // ==================================
         // Set up buses
