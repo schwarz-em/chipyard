@@ -81,15 +81,15 @@ class WithIrisStudyUcie extends Config(
   * with the scratchpad sized by the study. The serial-TL client port (TSI
   * loading, HTIF) comes from AbstractConfig: 32-bit, external clock.
   */
-class WithIrisStudyUncore(spadBytes: BigInt) extends Config(
+class WithIrisStudyUncore(spadBytes: BigInt, l2KB: Int = 512, l2Banks: Int = 4) extends Config(
   new freechips.rocketchip.subsystem.WithoutTLMonitors ++
   new testchipip.soc.WithOffchipAddressRange(AddressSet.misaligned(0x800000000L, 0x2000000000L)) ++
 
   // L2, as Iris
   new chipyard.config.WithInclusiveCacheInteriorBuffer ++
   new chipyard.config.WithInclusiveCacheExteriorBuffer ++
-  new freechips.rocketchip.subsystem.WithInclusiveCache(nWays = 4, capacityKB = 512, outerLatencyCycles = 4) ++
-  new freechips.rocketchip.subsystem.WithNBanks(4) ++
+  new freechips.rocketchip.subsystem.WithInclusiveCache(nWays = 4, capacityKB = l2KB, outerLatencyCycles = 4) ++
+  new freechips.rocketchip.subsystem.WithNBanks(l2Banks) ++
 
   // SBUS scratchpad: Iris's 2 banks at 0x5_8000_0000, study-sized
   new testchipip.soc.WithNoScratchpadMonitors ++
@@ -124,7 +124,9 @@ class IrisStudyConfig(
   tilePortBytes: Int = 32,       // Shuttle tile (TCM) port; iris 0d5ab69 uses 16
   nShuttles: Int = 1,            // Iris has 2; the study FPGA build fits 1
   int8OPU: Boolean = true,       // VectorParams.opuParams (int8 VME) instead of opuMxParams (+MX/FP8)
-  rocketVector: Boolean = false  // Saturn DMA vector unit on the Rocket tile (Iris has it)
+  rocketVector: Boolean = false, // Saturn DMA vector unit on the Rocket tile (Iris has it)
+  l2KB: Int = 512,               // FPGA-fit fallbacks may shrink the L2 (Iris: 512 KiB, 4 banks)
+  l2Banks: Int = 4
 ) extends Config(
   new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
 
@@ -184,7 +186,7 @@ class IrisStudyConfig(
   new shuttle.common.WithL1DCacheTagBanks(1) ++
   new shuttle.common.WithNShuttleCores(nShuttles) ++
 
-  new WithIrisStudyUncore(spadBytes)
+  new WithIrisStudyUncore(spadBytes, l2KB, l2Banks)
 )
 
 /** Chipyard RTL sim (sims/vcs) of the study chiplet (crossbar SBUS, mempress),

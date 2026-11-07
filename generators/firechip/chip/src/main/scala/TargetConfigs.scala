@@ -543,7 +543,7 @@ class WithFireSimScratchpadURAM extends Config((site, here, up) => {
   case FireSimScratchpadURAM => true
 })
 
-class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1) extends Config(
+class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1, l2KB: Int = 512, l2Banks: Int = 4) extends Config(
   new WithFireSimScratchpadURAM ++
   new WithD2DLinkBridge ++
   new chipyard.iobinders.WithD2DPunchthrough ++
@@ -560,10 +560,13 @@ class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1) extends Co
   // FireSim requires a larger UART FIFO buffer (as IrisFiresimConfig)
   new chipyard.config.WithUART(baudrate = BigInt(3686400L), txEntries = 256, rxEntries = 256) ++
   new chipyard.config.WithNoUART() ++
-  new chipyard.IrisStudyConfig(spadBytes, memChannels)
+  new chipyard.IrisStudyConfig(spadBytes, memChannels, l2KB = l2KB, l2Banks = l2Banks)
 )
 
 class IrisStudy8MBFireSimConfig  extends IrisStudyFireSimConfig(BigInt(8) << 20)
 class IrisStudy16MBFireSimConfig extends IrisStudyFireSimConfig(BigInt(16) << 20)
+// FPGA-fit fallbacks (only if the 8 MiB build doesn't place)
+class IrisStudy4MBFireSimConfig  extends IrisStudyFireSimConfig(BigInt(4) << 20)
+class IrisStudy4MBSmallL2FireSimConfig extends IrisStudyFireSimConfig(BigInt(4) << 20, l2KB = 256, l2Banks = 2)
 // Second HBM bandwidth point if runtime throttling doesn't work (M2 gate 3)
 class IrisStudy8MB2ChFireSimConfig extends IrisStudyFireSimConfig(BigInt(8) << 20, memChannels = 2)
