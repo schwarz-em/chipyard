@@ -39,7 +39,7 @@ class d2d_link_t final : public streaming_bridge_driver_t {
 public:
   static char KIND;
   d2d_link_t(simif_t &simif,
-             StreamEngine &stream,
+             HostStreamEngine &stream,
              const D2DLINKBRIDGEMODULE_struct &mmio_addrs,
              int link_idx,
              const std::vector<std::string> &args,
@@ -78,10 +78,25 @@ private:
   int tx_fd = -1;
   bool rx_connected = false; // peer has written at least once
 
+  // `buf` holds the batch being sent to the target; `rx_buf` receives the
+  // peer's batch while `buf` holds mine, then the two swap.
   char *buf = nullptr;
+  char *rx_buf = nullptr;
+  // A batch is waiting in `buf` for the from-host stream to have room. With
+  // FPGA-managed (F2 PCIM) streams, push() returns 0 under H2C backpressure
+  // instead of blocking, so retry it on the next tick.
+  bool pending_push = false;
+  // Consecutive tick()s with no full batch to pull. The F2 C2H engine hands
+  // data to the host in whole 4 KiB pages; a batch that ends mid-page is only
+  // released by pull_flush(), so call it after a few empty polls.
+  unsigned empty_pull_polls = 0;
+  static constexpr unsigned flush_poll_limit = 8;
+  // Batches moved per tick(), so other bridges still get serviced.
+  static constexpr unsigned max_batches_per_tick = 4;
 
   std::string prefix() const;
   void open_fifos();
+  void exchange_with_peer();
 };
 
 #endif // __D2D_LINK_H
