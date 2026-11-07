@@ -25,8 +25,11 @@ import saturn.common.{VectorParams}
 //     the NoC caps DMA copies at ~3.5-5.5 B/cycle (iris docs/NOC_BANDWIDTH.md)
 //   * 32-B Shuttle tile port (iris 0d5ab69: 16 B), so a TCM fills at up to
 //     32 B/cycle instead of ~15
-//   * the mempress memcopy engine (RoCC, hart 2) for weight/KV streams, next to
-//     Saturn's DMA unit, which drops to ~0.8 B/cycle on slow DRAM trace
+//   * the mempress memcopy engine (RoCC, on the Rocket tile) for weight/KV
+//     streams; Saturn's DMA unit on the Rocket tile is removed (rocketVector)
+//   * one Shuttle tile with an int8-only OPU (VectorParams.opuParams), not two
+//     with the MX/FP8 OPU: two MX Shuttles (655K LUTs of vector unit each) didn't
+//     fit an F2 VU47P (user decision 2026-11-06). Rocket is then hart nShuttles. trace
 // Everything else (tiles, Saturn/OPU, TCMs, L2, NoC topology) is IrisConfig's.
 // ============================================================================
 
@@ -106,9 +109,9 @@ class WithIrisStudyUncore(spadBytes: BigInt) extends Config(
   * requests each. Shuttle tiles also read BuildRoCC, so WithMultiRoCC scopes
   * it. Driver: sram-vs-bw-study/llm-bm/bench/dma_compare.c (mempress_copy).
   */
-class WithIrisStudyMempress extends Config(
+class WithIrisStudyMempress(rocketHart: Int) extends Config(
   new chipyard.config.WithMultiRoCC ++
-  new chipyard.config.WithMultiRoCCFromBuildRoCC(2) ++
+  new chipyard.config.WithMultiRoCCFromBuildRoCC(rocketHart) ++
   new mempress.WithMemPress(maxStreams = 1, beatBytes = 32, useMemLoader = true)
 )
 
@@ -118,7 +121,10 @@ class IrisStudyConfig(
   memChannels: Int = 1,
   sbusNoC: Boolean = false,      // true: Iris's Constellation NoC (for the NoC findings)
   mempressDMA: Boolean = true,
-  tilePortBytes: Int = 32        // Shuttle tile (TCM) port; iris 0d5ab69 uses 16
+  tilePortBytes: Int = 32,       // Shuttle tile (TCM) port; iris 0d5ab69 uses 16
+  nShuttles: Int = 1,            // Iris has 2; the study FPGA build fits 1
+  int8OPU: Boolean = true,       // VectorParams.opuParams (int8 VME) instead of opuMxParams (+MX/FP8)
+  rocketVector: Boolean = false  // Saturn DMA vector unit on the Rocket tile (Iris has it)
 ) extends Config(
   new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
 
@@ -127,7 +133,7 @@ class IrisStudyConfig(
 
   new WithIrisStudyUcie ++
   new WithIrisStudyMemory(memChannels) ++
-  (if (mempressDMA) new WithIrisStudyMempress else Parameters.empty) ++
+  (if (mempressDMA) new WithIrisStudyMempress(rocketHart = nShuttles) else Parameters.empty) ++
 
   // ==================================
   // Buses: IrisConfig's SBUS NoC, plus the study's new edges
@@ -161,13 +167,13 @@ class IrisStudyConfig(
   // ==================================
   // Rocket + Saturn DMA (hart 2)
   // ==================================
-  new saturn.rocket.WithRocketVectorUnit(256, 256, VectorParams.dmaParams) ++
+  (if (rocketVector) new saturn.rocket.WithRocketVectorUnit(256, 256, VectorParams.dmaParams) else Parameters.empty) ++
   new WithIrisRocketCore ++
 
   // ==================================
   // Shuttle tiles + Saturn/OPU (harts 0-1)
   // ==================================
-  new saturn.shuttle.WithShuttleVectorUnit(256, 128, VectorParams.opuMxParams) ++
+  new saturn.shuttle.WithShuttleVectorUnit(256, 128, if (int8OPU) VectorParams.opuParams else VectorParams.opuMxParams) ++
   new shuttle.common.WithShuttleTileBeatBytes(tilePortBytes) ++   // iris 0d5ab69: 16, iris-cy: 32
   new shuttle.common.WithTCM(size = 128L << 10, banks = 2) ++
   new shuttle.common.WithShuttleTileBoundaryBuffers() ++
@@ -176,7 +182,7 @@ class IrisStudyConfig(
   new shuttle.common.WithL1DCacheWays(2) ++
   new shuttle.common.WithL1DCacheBanks(1) ++
   new shuttle.common.WithL1DCacheTagBanks(1) ++
-  new shuttle.common.WithNShuttleCores(2) ++
+  new shuttle.common.WithNShuttleCores(nShuttles) ++
 
   new WithIrisStudyUncore(spadBytes)
 )
@@ -195,7 +201,7 @@ class IrisStudyRTLConfig extends Config(
   */
 class IrisStudyNoCRTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
-  new IrisStudyConfig(sbusNoC = true, tilePortBytes = 16)
+  new IrisStudyConfig(sbusNoC = true, tilePortBytes = 16, nShuttles = 2, int8OPU = false, rocketVector = true)
 )
 
 /** IrisStudyNoCRTLConfig with a crossbar SBUS: same 16-B tile ports, so the
@@ -203,5 +209,5 @@ class IrisStudyNoCRTLConfig extends Config(
   */
 class IrisStudyXbar16RTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
-  new IrisStudyConfig(tilePortBytes = 16)
+  new IrisStudyConfig(tilePortBytes = 16, nShuttles = 2, int8OPU = false, rocketVector = true)
 )

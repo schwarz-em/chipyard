@@ -25,6 +25,10 @@ import midas.targetutils.{MemModelAnnotation, EnableModelMultiThreadingAnnotatio
 
 case object FireSimMultiCycleRegFile extends Field[Boolean](false)
 case object FireSimFAME5 extends Field[Boolean](false)
+// SRAM-vs-BW study: map the SBUS scratchpad (testchipip BankedScratchpad,
+// .../bank(_N)/ram/mem/...) onto URAM instead of RAMB36. Without it, an 8 MiB
+// scratchpad takes ~2,048 RAMB36 (more than an F2 CL has) and URAM sits unused.
+case object FireSimScratchpadURAM extends Field[Boolean](false)
 
 /**
   * Under FireSim's current multiclock implementation there can be only a
@@ -116,6 +120,14 @@ class FireSim(implicit val p: Parameters) extends RawModule with HasHarnessInsta
   // time zero in the event their local reset is delayed (typically because it
   // has been pipelined)
   midas.targetutils.GlobalResetCondition(resetBridge.io.reset)
+
+  if (p(FireSimScratchpadURAM)) {
+    chisel3.experimental.annotate(new chisel3.experimental.ChiselAnnotation {
+      def toFirrtl = midas.targetutils.xdc.XDCAnnotation(
+        midas.targetutils.xdc.XDCFiles.Synthesis,
+        "set_property RAM_STYLE ULTRA [get_cells -hierarchical -regexp {.*/bank(_[0-9]+)?/ram/mem/.*_reg.*}]")
+    })
+  }
 
   // FireSim multi-cycle regfile optimization
   // FireSim ModelMultithreading

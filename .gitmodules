@@ -51,8 +51,8 @@
 	url = https://github.com/ucb-bar/rocc-acc-utils.git
 [submodule "generators/rocket-chip"]
 	path = generators/rocket-chip
-	url = https://github.com/ucb-bar/rocket-chip.git
-	branch = vme-tacit
+	url = https://github.com/schwarz-em/rocket-chip.git
+	branch = study/vme-novec
 [submodule "generators/rocket-chip-blocks"]
 	path = generators/rocket-chip-blocks
 	url = https://github.com/chipsalliance/rocket-chip-blocks.git

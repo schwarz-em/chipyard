@@ -539,7 +539,12 @@ class IrisFiresimNOCflushCombinedConfig extends Config(
 // 2-chip run is two simulators of this same config joined by the
 // +d2d_fifodir/+d2d_peer_* plusargs, with +d2d_latency=83.
 // ============================================================================
+class WithFireSimScratchpadURAM extends Config((site, here, up) => {
+  case FireSimScratchpadURAM => true
+})
+
 class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1) extends Config(
+  new WithFireSimScratchpadURAM ++
   new WithD2DLinkBridge ++
   new chipyard.iobinders.WithD2DPunchthrough ++
   new firechip.chip.WithDefaultFireSimBridges ++
