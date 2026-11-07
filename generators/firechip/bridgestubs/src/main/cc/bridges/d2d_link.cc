@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -65,7 +66,7 @@ std::string d2d_link_t::prefix() const {
 }
 
 d2d_link_t::d2d_link_t(simif_t &simif,
-                       StreamEngine &stream,
+                       HostStreamEngine &stream,
                        const D2DLINKBRIDGEMODULE_struct &mmio_addrs,
                        int link_idx,
                        const std::vector<std::string> &args,
@@ -163,11 +164,19 @@ d2d_link_t::d2d_link_t(simif_t &simif,
                      std::to_string(peer_link))
                         .c_str());
 
-  buf = static_cast<char *>(aligned_alloc(BEAT_BYTES, batch_bytes));
-  memset(buf, 0, batch_bytes);
+  for (char **b : {&buf, &rx_buf}) {
+    if (posix_memalign(reinterpret_cast<void **>(b), BEAT_BYTES, batch_bytes) !=
+        0) {
+      fail(prefix(), "cannot allocate %zu-byte batch buffer", batch_bytes);
+    }
+    memset(*b, 0, batch_bytes);
+  }
 }
 
-d2d_link_t::~d2d_link_t() { free(buf); }
+d2d_link_t::~d2d_link_t() {
+  free(buf);
+  free(rx_buf);
+}
 
 // Opens both FIFOs without depending on the order the peers start in, so any
 // topology (rings, multiple links per node) comes up without deadlock:
@@ -232,69 +241,86 @@ void d2d_link_t::init() {
     open_fifos();
   }
 
-  // Pre-load a full batch of empty tokens: the target's first `latency`
-  // cycles see an idle link, and from then on every token it receives is the
-  // peer's token from `latency` cycles earlier.
-  size_t pushed = push(stream_from_cpu_idx, buf, batch_bytes, batch_bytes);
-  if (pushed != batch_bytes) {
-    fail(prefix(),
-         "could not pre-load %zu beats (pushed %zu bytes)",
-         batch_beats,
-         pushed);
+  // Pre-load a full batch of empty tokens (buf is zeroed): the target's first
+  // `latency` cycles see an idle link, and from then on every token it
+  // receives is the peer's token from `latency` cycles earlier. tick() pushes
+  // it, retrying while the from-host stream applies backpressure.
+  pending_push = true;
+}
+
+// Send my batch (in buf), then receive the peer's batch for the same cycles
+// into rx_buf. The pipe was sized to hold a whole batch, so the blocking
+// write cannot deadlock against the peer's. read() and write() on a pipe may
+// be partial, so loop until done.
+void d2d_link_t::exchange_with_peer() {
+  for (size_t done = 0; done < batch_bytes;) {
+    ssize_t n = ::write(tx_fd, buf + done, batch_bytes - done);
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n <= 0) {
+      fail(prefix(), "write to peer failed: %s", strerror(errno));
+    }
+    done += n;
+  }
+  for (size_t done = 0; done < batch_bytes;) {
+    ssize_t n = ::read(rx_fd, rx_buf + done, batch_bytes - done);
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n < 0) {
+      fail(prefix(), "read from peer failed: %s", strerror(errno));
+    }
+    if (n == 0) {
+      // We opened the read end before the peer opened its write end, and
+      // a FIFO with no writer reads as EOF. Once the peer has written
+      // anything, EOF means it exited.
+      if (!rx_connected) {
+        usleep(1000);
+        continue;
+      }
+      fail(prefix(), "peer closed the link");
+    }
+    rx_connected = true;
+    done += n;
   }
 }
 
 void d2d_link_t::tick() {
-  while (true) {
+  for (unsigned batches = 0; batches < max_batches_per_tick; ++batches) {
+    // Hand the previous batch to the target first. Until it is accepted the
+    // target cannot advance past it, so there is nothing new to pull.
+    if (pending_push) {
+      size_t pushed = push(stream_from_cpu_idx, buf, batch_bytes, batch_bytes);
+      if (pushed == 0) {
+        return; // From-host stream full or H2C DMA busy; retry next tick.
+      }
+      if (pushed != batch_bytes) {
+        fail(prefix(), "pushed %zu bytes, expected %zu", pushed, batch_bytes);
+      }
+      pending_push = false;
+    }
+
     // Move a whole batch worth of tokens at a time; return until the
     // target has produced that many.
     size_t pulled = pull(stream_to_cpu_idx, buf, batch_bytes, batch_bytes);
     if (pulled == 0) {
+      if (++empty_pull_polls == flush_poll_limit) {
+        pull_flush(stream_to_cpu_idx);
+        empty_pull_polls = 0;
+      }
       return;
     }
+    empty_pull_polls = 0;
     if (pulled != batch_bytes) {
       fail(prefix(), "pulled %zu bytes, expected %zu", pulled, batch_bytes);
     }
 
-    if (!loopback) {
-      // Send mine, then receive the peer's batch for the same cycles. read()
-      // and write() on a pipe may be partial, so loop until done.
-      for (size_t done = 0; done < batch_bytes;) {
-        ssize_t n = ::write(tx_fd, buf + done, batch_bytes - done);
-        if (n < 0 && errno == EINTR)
-          continue;
-        if (n <= 0) {
-          fail(prefix(), "write to peer failed: %s", strerror(errno));
-        }
-        done += n;
-      }
-      for (size_t done = 0; done < batch_bytes;) {
-        ssize_t n = ::read(rx_fd, buf + done, batch_bytes - done);
-        if (n < 0 && errno == EINTR)
-          continue;
-        if (n < 0) {
-          fail(prefix(), "read from peer failed: %s", strerror(errno));
-        }
-        if (n == 0) {
-          // We opened the read end before the peer opened its write end, and
-          // a FIFO with no writer reads as EOF. Once the peer has written
-          // anything, EOF means it exited.
-          if (!rx_connected) {
-            usleep(1000);
-            continue;
-          }
-          fail(prefix(), "peer closed the link");
-        }
-        rx_connected = true;
-        done += n;
-      }
+    if (loopback) {
+      // buf already holds this link's own tokens.
+    } else {
+      exchange_with_peer();
+      std::swap(buf, rx_buf);
     }
-    // In loopback, buf already holds this link's own tokens.
-
-    size_t pushed = push(stream_from_cpu_idx, buf, batch_bytes, batch_bytes);
-    if (pushed != batch_bytes) {
-      fail(prefix(), "pushed %zu bytes, expected %zu", pushed, batch_bytes);
-    }
+    pending_push = true;
   }
 }
 
