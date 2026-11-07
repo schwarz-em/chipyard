@@ -2,9 +2,15 @@ package chipyard
 
 import scala.collection.immutable.ListMap
 
-import org.chipsalliance.cde.config.{Config, Parameters}
+import org.chipsalliance.cde.config.{Config, Field, Parameters}
 import freechips.rocketchip.diplomacy.{AddressSet}
+import org.chipsalliance.diplomacy.lazymodule.{LazyModule}
 import freechips.rocketchip.subsystem.{SBUS}
+import testchipip.soc.{SubsystemInjector, SubsystemInjectorKey}
+import freechips.rocketchip.tilelink.{TLRAM, TLFragmenter, TLBuffer, TLXbar}
+import freechips.rocketchip.resources.{MemoryDevice}
+import freechips.rocketchip.prci.{ClockSinkDomain, ClockSinkParameters}
+import freechips.rocketchip.util.{ECCParams}
 import testchipip.soc.{ChipletRoutingParams, OffchipRouterParams}
 import edu.berkeley.cs.uciedigital.tilelink.{UcieTLParams}
 import saturn.common.{VectorParams}
@@ -77,11 +83,63 @@ class WithIrisStudyUcie extends Config(
     }))
 )
 
+/** SBUS scratchpad whose storage is one beat-wide memory per bank.
+  *
+  * testchipip's BankedScratchpad builds TLRAM with byte-granular writes, which
+  * emits 32 separate 8-bit-wide arrays per bank (one per byte lane). On an
+  * FPGA those can't use URAM efficiently (a 128K x 8 lane takes 32 URAM288,
+  * 8 of 72 bits used), so an 8 MiB scratchpad needs ~2,048 RAMB36 or ~2,048
+  * URAM -- more than an F2 has. Here TLRAM gets ECC granularity = beatBytes
+  * with the identity code, so each bank is ONE (beatBytes*8)-bit-wide array
+  * (mem_0): 4 MiB per bank = 128K x 256 bits = 128 URAM288 (4 wide x 32
+  * deep). Sub-beat writes become read-modify-write inside TLRAM; weight/KV
+  * streams write and read full beats.
+  * Same layout as testchipip WithScratchpad(banks = n, subBanks = 1): banks
+  * interleaved at cache-block stride, instance names bank / bank_N / ram.
+  */
+case class IrisStudySpadParams(base: BigInt, size: BigInt, banks: Int)
+case object IrisStudySpadKey extends Field[Option[IrisStudySpadParams]](None)
+
+class IrisStudySpadBank(address: AddressSet, beatBytes: Int, devOverride: MemoryDevice)(implicit p: Parameters)
+    extends ClockSinkDomain(ClockSinkParameters())(p) {
+  val xbar = TLXbar()
+  val ram = LazyModule(new TLRAM(
+    address = address,
+    beatBytes = beatBytes,
+    ecc = ECCParams(bytes = beatBytes),       // identity code: one beat-wide word, no ECC bits
+    devOverride = Some(devOverride)) {
+    override lazy val desiredName = "TLRAM_IrisStudySpad"
+  })
+  ram.node := TLFragmenter(beatBytes, p(freechips.rocketchip.subsystem.CacheBlockBytes), nameSuffix = Some("IrisStudySpad")) := TLBuffer() := xbar
+  override lazy val desiredName = "IrisStudySpadBank"
+}
+
+case object IrisStudySpadInjector extends SubsystemInjector((p, baseSubsystem) => {
+  p(IrisStudySpadKey).foreach { params =>
+    implicit val q: Parameters = p
+    val bus = baseSubsystem.locateTLBusWrapper(SBUS)
+    val stripe = p(freechips.rocketchip.subsystem.CacheBlockBytes)
+    val mask = (params.banks - 1) * stripe
+    val device = new MemoryDevice
+    (0 until params.banks).foreach { b =>
+      val bank = LazyModule(new IrisStudySpadBank(
+        AddressSet(params.base + stripe * b, params.size - 1 - mask), bus.beatBytes, device))
+      bank.clockNode := bus.fixedClockNode
+      bus.coupleTo(s"iris-study-spad-$b") { bank.xbar := bus { TLBuffer() } := _ }
+    }
+  }
+})
+
+class WithIrisStudyWideScratchpad(base: BigInt, size: BigInt, banks: Int = 2) extends Config((site, here, up) => {
+  case IrisStudySpadKey => Some(IrisStudySpadParams(base, size, banks))
+  case SubsystemInjectorKey => up(SubsystemInjectorKey) + IrisStudySpadInjector
+})
+
 /** WithIrisUncore (iris-cy) minus WithNoMemPort and the serial-TL manager port,
   * with the scratchpad sized by the study. The serial-TL client port (TSI
   * loading, HTIF) comes from AbstractConfig: 32-bit, external clock.
   */
-class WithIrisStudyUncore(spadBytes: BigInt, l2KB: Int = 512, l2Banks: Int = 4) extends Config(
+class WithIrisStudyUncore(spadBytes: BigInt, l2KB: Int = 512, l2Banks: Int = 4, wideSpad: Boolean = true) extends Config(
   new freechips.rocketchip.subsystem.WithoutTLMonitors ++
   new testchipip.soc.WithOffchipAddressRange(AddressSet.misaligned(0x800000000L, 0x2000000000L)) ++
 
@@ -91,14 +149,12 @@ class WithIrisStudyUncore(spadBytes: BigInt, l2KB: Int = 512, l2Banks: Int = 4) 
   new freechips.rocketchip.subsystem.WithInclusiveCache(nWays = 4, capacityKB = l2KB, outerLatencyCycles = 4) ++
   new freechips.rocketchip.subsystem.WithNBanks(l2Banks) ++
 
-  // SBUS scratchpad: Iris's 2 banks at 0x5_8000_0000, study-sized
-  new testchipip.soc.WithNoScratchpadMonitors ++
-  new testchipip.soc.WithScratchpad(
-    base = IrisStudy.spadBase,
-    size = spadBytes,
-    banks = 2,
-    partitions = 1
-  ) ++
+  // SBUS scratchpad: Iris's 2 banks at 0x5_8000_0000, study-sized. wideSpad:
+  // one beat-wide memory per bank (FPGA URAM-friendly); otherwise testchipip's.
+  (if (wideSpad) new WithIrisStudyWideScratchpad(IrisStudy.spadBase, spadBytes, banks = 2)
+   else new Config(
+     new testchipip.soc.WithNoScratchpadMonitors ++
+     new testchipip.soc.WithScratchpad(base = IrisStudy.spadBase, size = spadBytes, banks = 2, partitions = 1))) ++
 
   new testchipip.soc.WithNoScratchpads ++   // drops AbstractConfig's MBUS scratchpad
   new chipyard.config.AbstractConfig
@@ -126,7 +182,8 @@ class IrisStudyConfig(
   int8OPU: Boolean = true,       // VectorParams.opuParams (int8 VME) instead of opuMxParams (+MX/FP8)
   rocketVector: Boolean = false, // Saturn DMA vector unit on the Rocket tile (Iris has it)
   l2KB: Int = 512,               // FPGA-fit fallbacks may shrink the L2 (Iris: 512 KiB, 4 banks)
-  l2Banks: Int = 4
+  l2Banks: Int = 4,
+  wideSpad: Boolean = true       // beat-wide scratchpad memory (URAM-friendly); false = testchipip's
 ) extends Config(
   new chipyard.harness.WithAbsoluteFreqHarnessClockInstantiator ++
 
@@ -186,7 +243,7 @@ class IrisStudyConfig(
   new shuttle.common.WithL1DCacheTagBanks(1) ++
   new shuttle.common.WithNShuttleCores(nShuttles) ++
 
-  new WithIrisStudyUncore(spadBytes, l2KB, l2Banks)
+  new WithIrisStudyUncore(spadBytes, l2KB, l2Banks, wideSpad)
 )
 
 /** Chipyard RTL sim (sims/vcs) of the study chiplet (crossbar SBUS, mempress),
@@ -203,7 +260,7 @@ class IrisStudyRTLConfig extends Config(
   */
 class IrisStudyNoCRTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
-  new IrisStudyConfig(sbusNoC = true, tilePortBytes = 16, nShuttles = 2, int8OPU = false, rocketVector = true)
+  new IrisStudyConfig(sbusNoC = true, tilePortBytes = 16, nShuttles = 2, int8OPU = false, rocketVector = true, wideSpad = false)
 )
 
 /** IrisStudyNoCRTLConfig with a crossbar SBUS: same 16-B tile ports, so the
@@ -211,5 +268,5 @@ class IrisStudyNoCRTLConfig extends Config(
   */
 class IrisStudyXbar16RTLConfig extends Config(
   new chipyard.harness.WithD2DTiedOff ++
-  new IrisStudyConfig(tilePortBytes = 16, nShuttles = 2, int8OPU = false, rocketVector = true)
+  new IrisStudyConfig(tilePortBytes = 16, nShuttles = 2, int8OPU = false, rocketVector = true, wideSpad = false)
 )
