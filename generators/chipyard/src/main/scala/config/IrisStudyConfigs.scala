@@ -254,6 +254,14 @@ class IrisStudyRTLConfig extends Config(
   new IrisStudyConfig
 )
 
+/** IrisStudyRTLConfig with every ClockGate replaced by a pass-through, as in the
+  * FireSim configs. Checks that ungating Saturn's OPU doesn't change behavior.
+  */
+class IrisStudyNoGateRTLConfig extends Config(
+  new chipyard.clocking.WithPassthroughClockGates ++
+  new IrisStudyRTLConfig
+)
+
 /** Iris's interconnect as taped out (iris 0d5ab69): Constellation SBUS NoC and
   * 16-B Shuttle tile ports. Reproduces the NoC copy-bandwidth findings (iris
   * docs/NOC_BANDWIDTH.md).

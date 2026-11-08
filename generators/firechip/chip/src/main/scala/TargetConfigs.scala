@@ -555,6 +555,9 @@ class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1, l2KB: Int 
   new chipyard.clocking.WithPassthroughClockGenerator ++
   // Required: Existing FAME-1 transform cannot handle black-box clock gates
   new WithoutClockGating ++
+  // Same reason, for ClockGates inside generators (Saturn's OPU opu_clock_gate):
+  // left in, it became a LUT-gated fabric clock and failed hold on every F2 build.
+  new chipyard.clocking.WithPassthroughClockGates ++
   // Optional: Do not support debug module w. JTAG until FIRRTL stops emitting @(posedge ~clock)
   new chipyard.config.WithNoDebug ++
   // FireSim requires a larger UART FIFO buffer (as IrisFiresimConfig)
