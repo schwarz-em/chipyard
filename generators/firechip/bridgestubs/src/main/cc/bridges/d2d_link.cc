@@ -178,11 +178,14 @@ d2d_link_t::~d2d_link_t() {
   free(rx_buf);
 }
 
-// Opens both FIFOs without depending on the order the peers start in, so any
-// topology (rings, multiple links per node) comes up without deadlock:
-// read ends open immediately with O_NONBLOCK; a write end only opens once the
-// peer has its read end open, so retry until it does.
-void d2d_link_t::open_fifos() {
+// Opens the FIFOs without depending on the order the peers start in, so any
+// topology (rings, multiple links per node) comes up without deadlock. Read
+// ends open immediately with O_NONBLOCK, and every link opens its read end in
+// init(). A write end only opens once the peer has its read end open, so it is
+// opened (with retry) on the first tick(), after all of this node's links have
+// opened their read ends. Opening it in init() deadlocks rings: each node
+// would block on link 0's write end before opening link 1's read end.
+void d2d_link_t::open_rx_fifo() {
   for (auto &path : {rx_fifo_path, tx_fifo_path}) {
     if (mkfifo(path.c_str(), 0666) != 0 && errno != EEXIST) {
       fail(prefix(), "mkfifo %s: %s", path.c_str(), strerror(errno));
@@ -193,7 +196,9 @@ void d2d_link_t::open_fifos() {
   if (rx_fd < 0) {
     fail(prefix(), "open %s: %s", rx_fifo_path.c_str(), strerror(errno));
   }
+}
 
+void d2d_link_t::open_tx_fifo() {
   for (unsigned waited_ms = 0;; waited_ms += 100) {
     tx_fd = open(tx_fifo_path.c_str(), O_WRONLY | O_NONBLOCK);
     if (tx_fd >= 0)
@@ -210,20 +215,23 @@ void d2d_link_t::open_fifos() {
     usleep(100 * 1000);
   }
 
-  for (int fd : {rx_fd, tx_fd}) {
-    int flags = fcntl(fd, F_GETFL);
-    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
-  }
+  // The write end blocks; the read end stays non-blocking (see
+  // recv_from_peer()).
+  int flags = fcntl(tx_fd, F_GETFL);
+  fcntl(tx_fd, F_SETFL, flags & ~O_NONBLOCK);
 
-  // Each side writes a whole batch before reading the peer's, so the pipe must
-  // hold one batch or both sides block in write().
-  int pipe_bytes = fcntl(tx_fd, F_SETPIPE_SZ, static_cast<int>(batch_bytes));
-  if (pipe_bytes < 0 || static_cast<size_t>(pipe_bytes) < batch_bytes) {
+  // A side sends batch k+1 only after it has received the peer's batch k,
+  // which the peer sent only after receiving batch k-1. So at most two of my
+  // batches are unread in the pipe; size it for two so write() never blocks
+  // on a peer that is itself waiting.
+  size_t pipe_need = 2 * batch_bytes;
+  int pipe_bytes = fcntl(tx_fd, F_SETPIPE_SZ, static_cast<int>(pipe_need));
+  if (pipe_bytes < 0 || static_cast<size_t>(pipe_bytes) < pipe_need) {
     fail(prefix(),
          "cannot size %s to %zu bytes (%s); lower the latency or raise "
          "/proc/sys/fs/pipe-max-size",
          tx_fifo_path.c_str(),
-         batch_bytes,
+         pipe_need,
          pipe_bytes < 0 ? strerror(errno) : "too small");
   }
 
@@ -238,7 +246,7 @@ void d2d_link_t::init() {
   signal(SIGPIPE, SIG_IGN);
 
   if (!loopback) {
-    open_fifos();
+    open_rx_fifo();
   }
 
   // Pre-load a full batch of empty tokens (buf is zeroed): the target's first
@@ -248,11 +256,10 @@ void d2d_link_t::init() {
   pending_push = true;
 }
 
-// Send my batch (in buf), then receive the peer's batch for the same cycles
-// into rx_buf. The pipe was sized to hold a whole batch, so the blocking
-// write cannot deadlock against the peer's. read() and write() on a pipe may
-// be partial, so loop until done.
-void d2d_link_t::exchange_with_peer() {
+// Send my batch (in buf) to the peer. write() on a pipe may be partial, so
+// loop until done; the pipe holds two batches, so this never waits on a peer
+// that is blocked (see open_tx_fifo()).
+void d2d_link_t::send_to_peer() {
   for (size_t done = 0; done < batch_bytes;) {
     ssize_t n = ::write(tx_fd, buf + done, batch_bytes - done);
     if (n < 0 && errno == EINTR)
@@ -262,10 +269,17 @@ void d2d_link_t::exchange_with_peer() {
     }
     done += n;
   }
-  for (size_t done = 0; done < batch_bytes;) {
-    ssize_t n = ::read(rx_fd, rx_buf + done, batch_bytes - done);
+}
+
+// Receive as much of the peer's batch for the same cycles into rx_buf as is
+// available without blocking. Returns true once the whole batch is in.
+bool d2d_link_t::recv_from_peer() {
+  while (rx_done < batch_bytes) {
+    ssize_t n = ::read(rx_fd, rx_buf + rx_done, batch_bytes - rx_done);
     if (n < 0 && errno == EINTR)
       continue;
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+      return false;
     if (n < 0) {
       fail(prefix(), "read from peer failed: %s", strerror(errno));
     }
@@ -273,19 +287,30 @@ void d2d_link_t::exchange_with_peer() {
       // We opened the read end before the peer opened its write end, and
       // a FIFO with no writer reads as EOF. Once the peer has written
       // anything, EOF means it exited.
-      if (!rx_connected) {
-        usleep(1000);
-        continue;
-      }
+      if (!rx_connected)
+        return false;
       fail(prefix(), "peer closed the link");
     }
     rx_connected = true;
-    done += n;
+    rx_done += n;
   }
+  return true;
 }
 
 void d2d_link_t::tick() {
+  if (!loopback && tx_fd < 0) {
+    open_tx_fifo();
+  }
   for (unsigned batches = 0; batches < max_batches_per_tick; ++batches) {
+    if (awaiting_rx) {
+      if (!recv_from_peer()) {
+        return; // Peer's batch not fully here yet; resume next tick.
+      }
+      awaiting_rx = false;
+      std::swap(buf, rx_buf);
+      pending_push = true;
+    }
+
     // Hand the previous batch to the target first. Until it is accepted the
     // target cannot advance past it, so there is nothing new to pull.
     if (pending_push) {
@@ -316,11 +341,12 @@ void d2d_link_t::tick() {
 
     if (loopback) {
       // buf already holds this link's own tokens.
+      pending_push = true;
     } else {
-      exchange_with_peer();
-      std::swap(buf, rx_buf);
+      send_to_peer();
+      rx_done = 0;
+      awaiting_rx = true;
     }
-    pending_push = true;
   }
 }
 

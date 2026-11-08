@@ -77,6 +77,12 @@ private:
   int rx_fd = -1;
   int tx_fd = -1;
   bool rx_connected = false; // peer has written at least once
+  // A batch was sent to the peer and the peer's batch for the same cycles is
+  // still arriving into rx_buf (rx_done bytes so far). The read is resumed on
+  // later tick()s instead of blocking, so a node never waits on one link while
+  // a peer waits on another of its links (rings would deadlock).
+  bool awaiting_rx = false;
+  size_t rx_done = 0;
 
   // `buf` holds the batch being sent to the target; `rx_buf` receives the
   // peer's batch while `buf` holds mine, then the two swap.
@@ -95,8 +101,10 @@ private:
   static constexpr unsigned max_batches_per_tick = 4;
 
   std::string prefix() const;
-  void open_fifos();
-  void exchange_with_peer();
+  void open_rx_fifo();
+  void open_tx_fifo();
+  void send_to_peer();
+  bool recv_from_peer();
 };
 
 #endif // __D2D_LINK_H
