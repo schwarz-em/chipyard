@@ -557,6 +557,8 @@ class IrisStudyFireSimConfig(spadBytes: BigInt, memChannels: Int = 1, l2KB: Int 
   new WithoutClockGating ++
   // Same reason, for ClockGates inside generators (Saturn's OPU opu_clock_gate):
   // left in, it became a LUT-gated fabric clock and failed hold on every F2 build.
+  // Caveat: verified on IrisStudyNoGateRTLConfig that int8 VME, moves and RVV are
+  // unchanged, but FP8 sf.mm is NOT (its FMA pipe relies on the gate to hold).
   new chipyard.clocking.WithPassthroughClockGates ++
   // Optional: Do not support debug module w. JTAG until FIRRTL stops emitting @(posedge ~clock)
   new chipyard.config.WithNoDebug ++
