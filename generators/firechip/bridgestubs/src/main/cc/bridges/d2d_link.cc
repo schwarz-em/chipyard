@@ -142,6 +142,9 @@ d2d_link_t::d2d_link_t(simif_t &simif,
          stream_from_cpu_depth);
   }
   batch_bytes = batch_beats * BEAT_BYTES;
+  if (find_arg(args, "d2d_closed_grace", v)) {
+    closed_grace_cycles = std::stoull(v, nullptr, 0);
+  }
 
   // FIFOs
   if (!loopback) {
@@ -260,10 +263,16 @@ void d2d_link_t::init() {
 // loop until done; the pipe holds two batches, so this never waits on a peer
 // that is blocked (see open_tx_fifo()).
 void d2d_link_t::send_to_peer() {
+  if (peer_closed)
+    return;
   for (size_t done = 0; done < batch_bytes;) {
     ssize_t n = ::write(tx_fd, buf + done, batch_bytes - done);
     if (n < 0 && errno == EINTR)
       continue;
+    if (n < 0 && errno == EPIPE) {
+      mark_peer_closed();
+      return;
+    }
     if (n <= 0) {
       fail(prefix(), "write to peer failed: %s", strerror(errno));
     }
@@ -273,7 +282,30 @@ void d2d_link_t::send_to_peer() {
 
 // Receive as much of the peer's batch for the same cycles into rx_buf as is
 // available without blocking. Returns true once the whole batch is in.
+void d2d_link_t::mark_peer_closed() {
+  if (peer_closed)
+    return;
+  peer_closed = true;
+  printf("%s peer closed the link; sending idle tokens until this node exits "
+         "(fails after %lu cycles)\n",
+         prefix().c_str(),
+         closed_grace_cycles);
+  fflush(stdout);
+}
+
 bool d2d_link_t::recv_from_peer() {
+  if (peer_closed) {
+    memset(rx_buf + rx_done, 0, batch_bytes - rx_done);
+    rx_done = batch_bytes;
+    closed_cycles += latency;
+    if (closed_cycles > closed_grace_cycles) {
+      fail(prefix(),
+           "peer closed the link %lu cycles ago and this node is still "
+           "running; the peer probably died",
+           closed_cycles);
+    }
+    return true;
+  }
   while (rx_done < batch_bytes) {
     ssize_t n = ::read(rx_fd, rx_buf + rx_done, batch_bytes - rx_done);
     if (n < 0 && errno == EINTR)
@@ -289,7 +321,8 @@ bool d2d_link_t::recv_from_peer() {
       // anything, EOF means it exited.
       if (!rx_connected)
         return false;
-      fail(prefix(), "peer closed the link");
+      mark_peer_closed();
+      return recv_from_peer();
     }
     rx_connected = true;
     rx_done += n;

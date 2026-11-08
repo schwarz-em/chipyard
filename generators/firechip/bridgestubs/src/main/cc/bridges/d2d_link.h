@@ -83,6 +83,14 @@ private:
   // a peer waits on another of its links (rings would deadlock).
   bool awaiting_rx = false;
   size_t rx_done = 0;
+  // The peer exited (EOF on rx or EPIPE on tx). Nodes finish at slightly
+  // different times, so a node that is still running sees its peer leave
+  // after the final barrier. From then on the link carries idle (zero)
+  // tokens so this node can reach its own exit; if it is still running
+  // closed_grace_cycles later, the peer most likely died mid-run, so fail.
+  bool peer_closed = false;
+  uint64_t closed_cycles = 0;
+  uint64_t closed_grace_cycles = 200000000; // +d2d_closed_grace=<cycles>
 
   // `buf` holds the batch being sent to the target; `rx_buf` receives the
   // peer's batch while `buf` holds mine, then the two swap.
@@ -105,6 +113,7 @@ private:
   void open_tx_fifo();
   void send_to_peer();
   bool recv_from_peer();
+  void mark_peer_closed();
 };
 
 #endif // __D2D_LINK_H
