@@ -575,3 +575,21 @@ class IrisStudy4MBFireSimConfig  extends IrisStudyFireSimConfig(BigInt(4) << 20)
 class IrisStudy4MBSmallL2FireSimConfig extends IrisStudyFireSimConfig(BigInt(4) << 20, l2KB = 256, l2Banks = 2)
 // Second HBM bandwidth point if runtime throttling doesn't work (M2 gate 3)
 class IrisStudy8MB2ChFireSimConfig extends IrisStudyFireSimConfig(BigInt(8) << 20, memChannels = 2)
+
+// M6 (sram-vs-bw-study): mempress with more outstanding requests. Pair with a
+// FASED platform config whose functional-model limit is at least as large
+// (WithFuncModelLimits128), or the FASED model still caps reads in flight at 32.
+class WithMemPressOutstanding(n: Int) extends Config((site, here, up) => {
+  case mempress.MemPressMaxOutstandingReqs => n
+})
+// M6 "superset" HBM-path images: 32-B (256-bit) memory bus and AXI4 memory port
+// (default 8 B) plus 128 mempress outstanding requests. Build with
+// PLATFORM_CONFIG=WithFuncModelLimits128_WithHBMQueue32_HBM2FRFCFS16GBDualPC_BaseF2PCIMConfig.
+class IrisStudy16MBWideMemMP128FireSimConfig extends Config(
+  new WithMemPressOutstanding(128) ++
+  new freechips.rocketchip.subsystem.WithEdgeDataBits(256) ++
+  new IrisStudy16MBFireSimConfig)
+class IrisStudy8MBWideMemMP128FireSimConfig extends Config(
+  new WithMemPressOutstanding(128) ++
+  new freechips.rocketchip.subsystem.WithEdgeDataBits(256) ++
+  new IrisStudy8MBFireSimConfig)
