@@ -593,3 +593,9 @@ class IrisStudy8MBWideMemMP128FireSimConfig extends Config(
   new WithMemPressOutstanding(128) ++
   new freechips.rocketchip.subsystem.WithEdgeDataBits(256) ++
   new IrisStudy8MBFireSimConfig)
+// M6 m6b: 32-B memory port only (mempress stays at 32 outstanding). Build with
+// PLATFORM_CONFIG=WithHBMQueue32_HBM2FRFCFS16GBDualPC_BaseF2PCIMConfig (FASED 32/32).
+// The MP128 + FuncModelLimits128 combination corrupted mempress DRAM->TCM chunks on F2.
+class IrisStudy16MBWideMemFireSimConfig extends Config(
+  new freechips.rocketchip.subsystem.WithEdgeDataBits(256) ++
+  new IrisStudy16MBFireSimConfig)
