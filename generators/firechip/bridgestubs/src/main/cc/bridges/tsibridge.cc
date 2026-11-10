@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstring>
 #include <gmp.h>
 
 char tsibridge_t::KIND;
@@ -167,20 +168,14 @@ void tsibridge_t::handle_loadmem_read(firesim_loadmem_t loadmem) {
 void tsibridge_t::handle_loadmem_write(firesim_loadmem_t loadmem) {
   assert(loadmem.size <= 4096);
   assert(has_mem);
-  static char buf[4096]; // size chosen empirically based on chunk sizes
+  // Raw 32-bit words straight to the LoadMem widget (no GMP round trip).
+  static uint32_t buf[4096 / sizeof(uint32_t)];
   fesvr->recv_loadmem_data(buf, loadmem.size);
-  mpz_t data;
-  mpz_init(data);
-  mpz_import(data,
-             (loadmem.size + sizeof(uint32_t) - 1) / sizeof(uint32_t),
-             -1,
-             sizeof(uint32_t),
-             0,
-             0,
-             buf);
-  loadmem_widget.write_mem_chunk(
-      loadmem.addr + mem_host_offset, data, loadmem.size);
-  mpz_clear(data);
+  if (loadmem.size % sizeof(uint32_t))
+    memset(reinterpret_cast<char *>(buf) + loadmem.size, 0,
+           sizeof(uint32_t) - loadmem.size % sizeof(uint32_t));
+  loadmem_widget.write_mem_chunk_raw(
+      loadmem.addr + mem_host_offset, buf, loadmem.size);
 }
 
 void tsibridge_t::tsi_bypass_via_loadmem() {
