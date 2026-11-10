@@ -593,3 +593,11 @@ class IrisStudy8MBWideMemMP128FireSimConfig extends Config(
   new WithMemPressOutstanding(128) ++
   new freechips.rocketchip.subsystem.WithEdgeDataBits(256) ++
   new IrisStudy8MBFireSimConfig)
+
+// M6 D1: the m6fix image (study/iris-m6-fasedfix) with 6 GiB of target DRAM, the
+// maximum under the address map (DRAM from 0x8000_0000; the L2-bypass alias
+// [0x2_8000_0000, 0x4_0000_0000) must stay below 0x5_8000_0000). A distinct class
+// so the 1-GiB m6fix config (and its generated-src / driver) is unchanged.
+class IrisStudy16MBWideMemMP128Dram6GFireSimConfig extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize(BigInt(6) << 30) ++
+  new IrisStudy16MBWideMemMP128FireSimConfig)
