@@ -6,6 +6,7 @@
 #include "fesvr/firesim_tsi.h"
 
 #include <cassert>
+#include <chrono>
 #include <gmp.h>
 
 char tsibridge_t::KIND;
@@ -98,6 +99,7 @@ tsibridge_t::~tsibridge_t() {
 }
 
 void tsibridge_t::init() {
+  t_init = std::chrono::steady_clock::now();
   // `ucontext` used by tsi cannot be created in one thread and resumed in
   // another. To ensure that the tsi process is on the correct thread, it is
   // built here, as the bridge constructor may be invoked from a thread other
@@ -183,12 +185,25 @@ void tsibridge_t::handle_loadmem_write(firesim_loadmem_t loadmem) {
 
 void tsibridge_t::tsi_bypass_via_loadmem() {
   firesim_loadmem_t loadmem;
+  const auto t0 = std::chrono::steady_clock::now();
+  const uint64_t bytes0 = loadmem_bytes_written;
   while (fesvr->has_loadmem_reqs()) {
     // Check for reads first as they preceed a narrow write;
     if (fesvr->recv_loadmem_read_req(loadmem))
       handle_loadmem_read(loadmem);
-    if (fesvr->recv_loadmem_write_req(loadmem))
+    if (fesvr->recv_loadmem_write_req(loadmem)) {
+      loadmem_bytes_written += loadmem.size;
       handle_loadmem_write(loadmem);
+    }
+  }
+  const uint64_t bytes = loadmem_bytes_written - bytes0;
+  if (bytes >= (1u << 20)) {
+    const auto t1 = std::chrono::steady_clock::now();
+    const double drain = std::chrono::duration<double>(t1 - t0).count();
+    const double since_init = std::chrono::duration<double>(t1 - t_init).count();
+    printf("[tsi-loadmem] drained %" PRIu64 " B in %.3f s (%.2f MB/s); %.3f s since bridge init\n",
+           bytes, drain, bytes / drain / 1e6, since_init);
+    fflush(stdout);
   }
 }
 

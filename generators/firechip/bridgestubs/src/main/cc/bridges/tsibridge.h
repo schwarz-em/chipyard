@@ -5,6 +5,8 @@
 #include "bridges/serial_data.h"
 #include "core/bridge_driver.h"
 
+#include <chrono>
+
 class loadmem_t;
 class firesim_tsi_t;
 class firesim_loadmem_t;
@@ -72,6 +74,11 @@ private:
   void handle_loadmem_read(firesim_loadmem_t loadmem);
   void handle_loadmem_write(firesim_loadmem_t loadmem);
   void tsi_bypass_via_loadmem();
+
+  // Load-time instrumentation (gate 0b): wall time from init() and bytes
+  // written through the loadmem bypass.
+  std::chrono::steady_clock::time_point t_init;
+  uint64_t loadmem_bytes_written = 0;
 };
 
 #endif // __TSIBRIDGE_H
