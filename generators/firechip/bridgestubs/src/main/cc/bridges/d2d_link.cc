@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <utility>
 
 #include <fcntl.h>
@@ -142,6 +143,9 @@ d2d_link_t::d2d_link_t(simif_t &simif,
          stream_from_cpu_depth);
   }
   batch_bytes = batch_beats * BEAT_BYTES;
+  if (find_arg(args, "d2d_heartbeat", v)) {
+    heartbeat_secs = std::stoul(v, nullptr, 0);
+  }
   if (find_arg(args, "d2d_closed_grace", v)) {
     closed_grace_cycles = std::stoull(v, nullptr, 0);
   }
@@ -331,6 +335,7 @@ bool d2d_link_t::recv_from_peer() {
 }
 
 void d2d_link_t::tick() {
+  heartbeat();
   if (!loopback && tx_fd < 0) {
     open_tx_fifo();
   }
@@ -340,6 +345,8 @@ void d2d_link_t::tick() {
         return; // Peer's batch not fully here yet; resume next tick.
       }
       awaiting_rx = false;
+      ++rx_batches;
+      rx_busy_beats += count_busy_beats(rx_buf, batch_beats);
       std::swap(buf, rx_buf);
       pending_push = true;
     }
@@ -349,6 +356,7 @@ void d2d_link_t::tick() {
     if (pending_push) {
       size_t pushed = push(stream_from_cpu_idx, buf, batch_bytes, batch_bytes);
       if (pushed == 0) {
+        ++push_stalls;
         return; // From-host stream full or H2C DMA busy; retry next tick.
       }
       if (pushed != batch_bytes) {
@@ -361,6 +369,7 @@ void d2d_link_t::tick() {
     // target has produced that many.
     size_t pulled = pull(stream_to_cpu_idx, buf, batch_bytes, batch_bytes);
     if (pulled == 0) {
+      ++pull_empty;
       if (++empty_pull_polls == flush_poll_limit) {
         pull_flush(stream_to_cpu_idx);
         empty_pull_polls = 0;
@@ -376,6 +385,8 @@ void d2d_link_t::tick() {
       // buf already holds this link's own tokens.
       pending_push = true;
     } else {
+      ++tx_batches;
+      tx_busy_beats += count_busy_beats(buf, batch_beats);
       send_to_peer();
       rx_done = 0;
       awaiting_rx = true;
@@ -389,4 +400,39 @@ void d2d_link_t::finish() {
   if (tx_fd >= 0)
     close(tx_fd);
   rx_fd = tx_fd = -1;
+}
+
+uint64_t d2d_link_t::count_busy_beats(const char *b, size_t beats) {
+  uint64_t n = 0;
+  for (size_t i = 0; i < beats; ++i) {
+    const char *p = b + i * BEAT_BYTES;
+    for (size_t j = 0; j < BEAT_BYTES; ++j) {
+      if (p[j]) {
+        ++n;
+        break;
+      }
+    }
+  }
+  return n;
+}
+
+void d2d_link_t::heartbeat() {
+  if (heartbeat_secs == 0)
+    return;
+  const uint64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+  if (hb_last_ns == 0) {
+    hb_last_ns = now;
+    return;
+  }
+  if (now - hb_last_ns < uint64_t(heartbeat_secs) * 1000000000ull)
+    return;
+  hb_last_ns = now;
+  printf("%s HB tx_batches %lu rx_batches %lu tx_busy_beats %lu rx_busy_beats %lu "
+         "push_stalls %lu pull_empty %lu pending_push %d awaiting_rx %d rx_done %zu "
+         "peer_closed %d\n",
+         prefix().c_str(), tx_batches, rx_batches, tx_busy_beats, rx_busy_beats,
+         push_stalls, pull_empty, pending_push, awaiting_rx, rx_done, peer_closed);
+  fflush(stdout);
 }

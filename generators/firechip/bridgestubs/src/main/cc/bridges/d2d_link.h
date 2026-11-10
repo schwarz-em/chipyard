@@ -89,6 +89,16 @@ private:
   // tokens so this node can reach its own exit; if it is still running
   // closed_grace_cycles later, the peer most likely died mid-run, so fail.
   bool peer_closed = false;
+  // Heartbeat (+d2d_heartbeat=<seconds>, default 30, 0 = off): every period of
+  // host wall time, print this link's batch and non-idle beat counters, so a
+  // stuck multi-node run shows whether tokens still flow on each link.
+  unsigned heartbeat_secs = 30;
+  uint64_t hb_last_ns = 0;
+  uint64_t tx_batches = 0, rx_batches = 0;       // batches sent to / received from the peer
+  uint64_t tx_busy_beats = 0, rx_busy_beats = 0; // beats with any non-zero byte (non-idle)
+  uint64_t push_stalls = 0, pull_empty = 0;      // ticks blocked on the target side
+  void heartbeat();
+  static uint64_t count_busy_beats(const char *b, size_t beats);
   uint64_t closed_cycles = 0;
   uint64_t closed_grace_cycles = 200000000; // +d2d_closed_grace=<cycles>
 
