@@ -7,6 +7,7 @@
 #include "d2d_link.h"
 #include "core/simif.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <csignal>
 #include <cstdarg>
@@ -127,22 +128,13 @@ d2d_link_t::d2d_link_t(simif_t &simif,
       find_arg(args, "d2d_latency", v)) {
     latency = std::stoull(v, nullptr, 0);
   }
-  if (latency == 0 || latency % tokens_per_beat != 0) {
-    fail(prefix(),
-         "latency %lu must be a positive multiple of %u (tokens per beat)",
-         latency,
-         tokens_per_beat);
+  check_latency(latency, "latency");
+  set_latency(latency);
+  max_batch_bytes = batch_bytes;
+  if (find_arg(args, "d2d_latency_switch_" + key, v) ||
+      find_arg(args, "d2d_latency_switch", v)) {
+    parse_schedule(v);
   }
-  batch_beats = latency / tokens_per_beat;
-  if (batch_beats > static_cast<size_t>(stream_from_cpu_depth)) {
-    fail(prefix(),
-         "latency %lu needs %zu beats in flight, but the from-host stream "
-         "holds %d",
-         latency,
-         batch_beats,
-         stream_from_cpu_depth);
-  }
-  batch_bytes = batch_beats * BEAT_BYTES;
   if (find_arg(args, "d2d_heartbeat", v)) {
     heartbeat_secs = std::stoul(v, nullptr, 0);
   }
@@ -171,18 +163,165 @@ d2d_link_t::d2d_link_t(simif_t &simif,
                      std::to_string(peer_link))
                         .c_str());
 
-  for (char **b : {&buf, &rx_buf}) {
-    if (posix_memalign(reinterpret_cast<void **>(b), BEAT_BYTES, batch_bytes) !=
-        0) {
-      fail(prefix(), "cannot allocate %zu-byte batch buffer", batch_bytes);
+  for (auto &sw : schedule) {
+    printf("%s latency switch scheduled at link cycle %lu: -> %lu cycles\n",
+           prefix().c_str(),
+           sw.first,
+           sw.second);
+  }
+
+  for (char **b : {&buf, &rx_buf, &zero_buf}) {
+    if (posix_memalign(
+            reinterpret_cast<void **>(b), BEAT_BYTES, max_batch_bytes) != 0) {
+      fail(prefix(), "cannot allocate %zu-byte batch buffer", max_batch_bytes);
     }
-    memset(*b, 0, batch_bytes);
+    memset(*b, 0, max_batch_bytes);
   }
 }
 
 d2d_link_t::~d2d_link_t() {
   free(buf);
   free(rx_buf);
+  free(zero_buf);
+}
+
+void d2d_link_t::check_latency(uint64_t l, const char *what) const {
+  if (l == 0 || l % tokens_per_beat != 0) {
+    fail(prefix(),
+         "%s %lu must be a positive multiple of %u (tokens per beat)",
+         what,
+         l,
+         tokens_per_beat);
+  }
+  if (l / tokens_per_beat > static_cast<uint64_t>(stream_from_cpu_depth)) {
+    fail(prefix(),
+         "%s %lu needs %lu beats in flight, but the from-host stream holds %d",
+         what,
+         l,
+         l / tokens_per_beat,
+         stream_from_cpu_depth);
+  }
+}
+
+void d2d_link_t::set_latency(uint64_t l) {
+  latency = l;
+  batch_beats = l / tokens_per_beat;
+  batch_bytes = batch_beats * BEAT_BYTES;
+}
+
+// <cycle>:<L>[,<cycle>:<L>...]; see the header comment for the rules.
+void d2d_link_t::parse_schedule(const std::string &spec) {
+  uint64_t prev_cycle = 0, prev_l = latency, drop_until = 0;
+  size_t pos = 0;
+  while (pos <= spec.size()) {
+    size_t end = spec.find(',', pos);
+    if (end == std::string::npos)
+      end = spec.size();
+    const std::string item = spec.substr(pos, end - pos);
+    unsigned long long c, l;
+    char junk;
+    if (sscanf(item.c_str(), "%llu:%llu%c", &c, &l, &junk) != 2) {
+      fail(prefix(),
+           "invalid +d2d_latency_switch entry '%s' (want <cycle>:<latency>)",
+           item.c_str());
+    }
+    check_latency(l, "switch latency");
+    if (!schedule.empty() && c <= prev_cycle) {
+      fail(prefix(), "latency switch cycles must increase (%llu)", c);
+    }
+    if ((c - prev_cycle) % prev_l != 0) {
+      fail(prefix(),
+           "latency switch at cycle %llu is not on a batch boundary: "
+           "(%llu - %lu) %% %lu != 0",
+           c,
+           c,
+           prev_cycle,
+           prev_l);
+    }
+    if (c < drop_until) {
+      fail(prefix(),
+           "latency switch at cycle %llu falls inside the previous switch's "
+           "drop window (ends at cycle %lu)",
+           c,
+           drop_until);
+    }
+    if (l < prev_l)
+      drop_until = c + (prev_l - l);
+    schedule.emplace_back(c, l);
+    max_batch_bytes =
+        std::max(max_batch_bytes, size_t(l / tokens_per_beat) * BEAT_BYTES);
+    prev_cycle = c;
+    prev_l = l;
+    pos = end + 1;
+  }
+}
+
+// Called with rx queued through cycle tx_cycles + latency - 1, before the
+// batch starting at tx_cycles is pulled.
+void d2d_link_t::apply_switch() {
+  const uint64_t s = schedule[next_switch].first;
+  const uint64_t l2 = schedule[next_switch].second;
+  const uint64_t l1 = latency;
+  ++next_switch;
+  if (l2 > l1) {
+    pad_bytes = (l2 - l1) / tokens_per_beat * BEAT_BYTES;
+    printf("%s latency switch at link cycle %lu: %lu -> %lu (%lu idle tokens "
+           "padded)\n",
+           prefix().c_str(),
+           s,
+           l1,
+           l2,
+           l2 - l1);
+  } else if (l2 < l1) {
+    drop_remaining = l1 - l2;
+    drop_start = s;
+    drop_end = s + drop_remaining;
+    printf("%s latency switch at link cycle %lu: %lu -> %lu (dropping %s tx "
+           "for link cycles [%lu, %lu); each must be idle)\n",
+           prefix().c_str(),
+           s,
+           l1,
+           l2,
+           loopback ? "loopback" : "peer",
+           drop_start,
+           drop_end);
+  }
+  fflush(stdout);
+  set_latency(l2);
+}
+
+// `buf` holds a received batch (the peer's tokens for link cycles
+// [tx_cycles - latency, tx_cycles)). Drop its head if a lowering switch is
+// still discarding tokens, and mark the rest for pushing to the target.
+void d2d_link_t::deliver_rx() {
+  uint64_t drop = std::min<uint64_t>(drop_remaining, latency);
+  const uint64_t first = tx_cycles - latency;
+  for (uint64_t k = 0; k < drop; ++k) {
+    const uint64_t bit = (k % tokens_per_beat) * token_bits;
+    const unsigned char byte = static_cast<unsigned char>(
+        buf[(k / tokens_per_beat) * BEAT_BYTES + bit / 8]);
+    if ((byte >> (bit % 8)) & 1) {
+      fail(prefix(),
+           "latency switch dropped a VALID token: %s tx at link cycle %lu "
+           "(drop window [%lu, %lu)). Link traffic in the drop window breaks "
+           "the latency-switch contract; data or credits are lost",
+           loopback ? "loopback" : "peer",
+           first + k,
+           drop_start,
+           drop_end);
+    }
+  }
+  drop_remaining -= drop;
+  if (drop > 0 && drop_remaining == 0) {
+    printf("%s latency switch drop window [%lu, %lu) done, all idle\n",
+           prefix().c_str(),
+           drop_start,
+           drop_end);
+    fflush(stdout);
+  }
+  push_off = drop / tokens_per_beat * BEAT_BYTES;
+  push_bytes = batch_bytes - push_off;
+  pending_push = push_bytes > 0;
 }
 
 // Opens the FIFOs without depending on the order the peers start in, so any
@@ -231,7 +370,7 @@ void d2d_link_t::open_tx_fifo() {
   // which the peer sent only after receiving batch k-1. So at most two of my
   // batches are unread in the pipe; size it for two so write() never blocks
   // on a peer that is itself waiting.
-  size_t pipe_need = 2 * batch_bytes;
+  size_t pipe_need = 2 * max_batch_bytes;
   int pipe_bytes = fcntl(tx_fd, F_SETPIPE_SZ, static_cast<int>(pipe_need));
   if (pipe_bytes < 0 || static_cast<size_t>(pipe_bytes) < pipe_need) {
     fail(prefix(),
@@ -260,6 +399,8 @@ void d2d_link_t::init() {
   // `latency` cycles see an idle link, and from then on every token it
   // receives is the peer's token from `latency` cycles earlier. tick() pushes
   // it, retrying while the from-host stream applies backpressure.
+  push_off = 0;
+  push_bytes = batch_bytes;
   pending_push = true;
 }
 
@@ -348,21 +489,39 @@ void d2d_link_t::tick() {
       ++rx_batches;
       rx_busy_beats += count_busy_beats(rx_buf, batch_beats);
       std::swap(buf, rx_buf);
-      pending_push = true;
+      deliver_rx();
     }
 
     // Hand the previous batch to the target first. Until it is accepted the
     // target cannot advance past it, so there is nothing new to pull.
     if (pending_push) {
-      size_t pushed = push(stream_from_cpu_idx, buf, batch_bytes, batch_bytes);
+      size_t pushed =
+          push(stream_from_cpu_idx, buf + push_off, push_bytes, push_bytes);
       if (pushed == 0) {
         ++push_stalls;
         return; // From-host stream full or H2C DMA busy; retry next tick.
       }
-      if (pushed != batch_bytes) {
-        fail(prefix(), "pushed %zu bytes, expected %zu", pushed, batch_bytes);
+      if (pushed != push_bytes) {
+        fail(prefix(), "pushed %zu bytes, expected %zu", pushed, push_bytes);
       }
       pending_push = false;
+    }
+
+    // Latency switch, once rx is queued through tx_cycles + latency - 1.
+    if (next_switch < schedule.size() &&
+        tx_cycles == schedule[next_switch].first) {
+      apply_switch();
+    }
+    if (pad_bytes > 0) {
+      size_t pushed = push(stream_from_cpu_idx, zero_buf, pad_bytes, pad_bytes);
+      if (pushed == 0) {
+        ++push_stalls;
+        return; // retry next tick
+      }
+      if (pushed != pad_bytes) {
+        fail(prefix(), "pushed %zu bytes, expected %zu", pushed, pad_bytes);
+      }
+      pad_bytes = 0;
     }
 
     // Move a whole batch worth of tokens at a time; return until the
@@ -380,10 +539,11 @@ void d2d_link_t::tick() {
     if (pulled != batch_bytes) {
       fail(prefix(), "pulled %zu bytes, expected %zu", pulled, batch_bytes);
     }
+    tx_cycles += latency;
 
     if (loopback) {
       // buf already holds this link's own tokens.
-      pending_push = true;
+      deliver_rx();
     } else {
       ++tx_batches;
       tx_busy_beats += count_busy_beats(buf, batch_beats);

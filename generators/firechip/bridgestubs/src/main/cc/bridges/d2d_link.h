@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Placeholder MMIO register (see D2DLinkBridgeModule)
@@ -34,6 +35,45 @@ struct D2DLINKBRIDGEMODULE_struct {
  *
  * The latency must be a positive multiple of tokens_per_beat, and
  * latency / tokens_per_beat beats must fit in the from-host stream queue.
+ *
+ * Runtime latency switch (fast boot, then real latency):
+ *
+ *   +d2d_latency_switch=<cycle>:<L>[,<cycle>:<L>...]
+ *   +d2d_latency_switch_<node>_<link>=...   per-link override
+ *
+ * The latency sets simulation speed (the drivers exchange one latency-sized
+ * batch per host round trip), so a run can boot at a high latency and switch
+ * to the real one before the link is used. <cycle> counts this link's tokens
+ * (D2D link clock cycles since the start of simulation, reset included); it is
+ * the same on every node, because the link runs in lockstep.
+ *
+ * Both ends of a link must use the same schedule, and loopback links follow
+ * theirs too. Since each side sends a whole batch and then reads the peer's,
+ * each switch must land on a batch boundary of the latency before it:
+ * (cycle - previous switch cycle, or 0) % previous latency == 0. When the
+ * switch fires, rx is already queued through cycle s + L1 - 1.
+ *   - Raise L1 -> L2: push L2 - L1 idle tokens, then use batch L2. Nothing is
+ *     lost, and peer tx t arrives at rx t + L1 (t < s) or t + L2 (t >= s).
+ *   - Lower L1 -> L2: the peer's tokens for cycles [s, s + L1 - L2) are
+ *     DROPPED (their rx slots are already taken by old-latency tokens); peer
+ *     tx t >= s + L1 - L2 arrives at rx t + L2. Neither target stalls, since
+ *     each still has L1 cycles of queued rx when the switch fires. Every
+ *     dropped token's bit 0 (the valid bit of a UCIe token, see
+ *     UcieLinkAdapter) is checked, and the simulator fails if one is set. So
+ *     the drop check is only meaningful for UCIe links. The next switch must
+ *     come after the drop window ends.
+ * Every L in the schedule obeys the same rules as +d2d_latency.
+ *
+ * Software contract: neither side may put a valid frame on the link in the
+ * drop window [s, s + L1 - L2). UCIe credits travel in-band, so a lost frame
+ * corrupts data or loses credits, and the link hangs later. Responses and
+ * credit returns count: every transaction must complete before s, so the last
+ * request goes out before s - (2*L1 + 35 + margin), since the UCIe RTT is
+ * 2L+35. In practice, keep the link unused from boot until after
+ * s + L1 - L2 + margin: one side waits on its
+ * local cycle counter until past the window, then initializes the router and
+ * stores a ready flag remotely, while the other side polls locally. Note that
+ * <cycle> is in link clock cycles, which may differ from the core's mcycle.
  */
 class d2d_link_t final : public streaming_bridge_driver_t {
 public:
@@ -68,9 +108,22 @@ private:
   int peer_node = -1;
   int peer_link = -1;
   bool loopback = false;
-  uint64_t latency = 0;      // in target cycles
+  uint64_t latency = 0;      // current latency, in target cycles
   size_t batch_beats = 0;    // latency / tokens_per_beat
   size_t batch_bytes = 0;
+  size_t max_batch_bytes = 0; // over the initial latency and the schedule
+
+  // Latency switch schedule (+d2d_latency_switch): (cycle, new latency).
+  std::vector<std::pair<uint64_t, uint64_t>> schedule;
+  size_t next_switch = 0;
+  uint64_t tx_cycles = 0;      // tokens pulled from the target so far
+  uint64_t drop_remaining = 0; // received tokens still to drop (lowering)
+  uint64_t drop_start = 0, drop_end = 0; // cycles of the current drop window
+  size_t pad_bytes = 0;        // idle tokens still to push (raising)
+  char *zero_buf = nullptr;    // max_batch_bytes of zeros, for padding
+  // Part of `buf` to hand to the target: dropping skips its first tokens.
+  size_t push_off = 0;
+  size_t push_bytes = 0;
 
   std::string rx_fifo_path; // peer -> me
   std::string tx_fifo_path; // me -> peer
@@ -124,6 +177,11 @@ private:
   void send_to_peer();
   bool recv_from_peer();
   void mark_peer_closed();
+  void set_latency(uint64_t l);
+  void check_latency(uint64_t l, const char *what) const;
+  void parse_schedule(const std::string &spec);
+  void apply_switch();
+  void deliver_rx();
 };
 
 #endif // __D2D_LINK_H
